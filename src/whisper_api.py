@@ -2,6 +2,11 @@ from faster_whisper import WhisperModel
 from fastapi import FastAPI, UploadFile, File
 import tempfile
 import os
+import logging
+
+# 設置日誌配置
+logging.basicConfig(level=logging.INFO)  # 設置日誌級別為 INFO
+logger = logging.getLogger(__name__)  # 獲取當前模塊的日誌記錄器
 
 # 初始化 Whisper 模型
 model = WhisperModel("large-v3", device="cuda", compute_type="float16")  # GPU
@@ -11,17 +16,28 @@ app = FastAPI()
 
 @app.post("/transcribe/")
 async def transcribe_audio(file: UploadFile = File(...)):
+    logger.info("Received file: %s", file.filename)  # 記錄接收到的文件名
+
     # 暫存檔案
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
         temp_audio.write(await file.read())
         temp_audio_path = temp_audio.name
+        logger.info("Temporary file created at: %s", temp_audio_path)  # 記錄暫存文件路徑
 
-    # 轉錄音頻
-    segments, _ = model.transcribe(temp_audio_path)
-    transcript = " ".join(segment.text for segment in segments)
+    try:
+        # 轉錄音頻
+        segments, _ = model.transcribe(temp_audio_path)
+        transcript = " ".join(segment.text for segment in segments)
+        logger.info("Transcription completed successfully.")  # 記錄轉錄成功
 
-    # 刪除暫存文件
-    os.remove(temp_audio_path)
+    except Exception as e:
+        logger.error("Error during transcription: %s", e)  # 記錄錯誤信息
+        return {"error": "Transcription failed."}
+
+    finally:
+        # 刪除暫存文件
+        os.remove(temp_audio_path)
+        logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
 
     return {"transcript": transcript}
 
