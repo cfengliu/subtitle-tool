@@ -14,6 +14,14 @@ model = WhisperModel("large-v3", device="cuda", compute_type="float16")  # GPU
 
 app = FastAPI()
 
+def format_timestamp(seconds: float) -> str:
+    """將秒數格式化為 SRT 格式的時間字符串（hh:mm:ss,mmm）"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02}:{minutes:02}:{secs:02},{milliseconds:03}"
+
 @app.post("/transcribe/")
 async def transcribe_audio(file: UploadFile = File(...)):
     logger.info("Received file: %s", file.filename)  # 記錄接收到的文件名
@@ -27,8 +35,15 @@ async def transcribe_audio(file: UploadFile = File(...)):
     try:
         # 轉錄音頻
         segments, _ = model.transcribe(temp_audio_path)
-        transcript = " ".join(segment.text for segment in segments)
-        logger.info("Transcription completed successfully.")  # 記錄轉錄成功
+        
+        # 生成 SRT 格式
+        srt_output = ""
+        for i, segment in enumerate(segments, start=1):
+            start_ts = format_timestamp(segment.start)
+            end_ts = format_timestamp(segment.end)
+            srt_output += f"{i}\n{start_ts} --> {end_ts}\n{segment.text.strip()}\n\n"
+        
+        logger.info("SRT transcription completed successfully.")  # 記錄轉錄成功
 
     except Exception as e:
         logger.error("Error during transcription: %s", e)  # 記錄錯誤信息
@@ -39,7 +54,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         os.remove(temp_audio_path)
         logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
 
-    return {"transcript": transcript}
+    return {"srt": srt_output}
 
 # 運行 FastAPI
 if __name__ == "__main__":
