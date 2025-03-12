@@ -1,4 +1,16 @@
-# subtitle-tool
+# Whisper API
+
+这是一个基于 FastAPI 的音频转录服务，使用 Faster Whisper 模型进行语音识别。
+
+## 依赖项
+
+请确保安装以下依赖项：
+
+```bash
+pip install -r requirements.txt
+```
+
+`requirements.txt` 文件内容如下：
 
 ## 使用方法
 
