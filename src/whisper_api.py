@@ -4,7 +4,7 @@ import tempfile
 import os
 
 # 初始化 Whisper 模型
-model = WhisperModel("medium", device="cuda", compute_type="float16")  # GPU
+model = WhisperModel("large-v3", device="cuda", compute_type="float16")  # GPU
 # model = WhisperModel("medium", device="cpu", compute_type="int8")  # CPU
 
 app = FastAPI()
