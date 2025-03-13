@@ -38,12 +38,19 @@ async def transcribe_audio(file: UploadFile = File(...)):
         
         # 生成 SRT 格式
         srt_output = ""
+        # 生成純文本格式
+        txt_output = ""
+        
         for i, segment in enumerate(segments, start=1):
             start_ts = format_timestamp(segment.start)
             end_ts = format_timestamp(segment.end)
             srt_output += f"{i}\n{start_ts} --> {end_ts}\n{segment.text.strip()}\n\n"
+            txt_output += f"{segment.text.strip()} "
         
-        logger.info("SRT transcription completed successfully.")  # 記錄轉錄成功
+        # 整理純文本格式（去除多餘空格）
+        txt_output = txt_output.strip()
+        
+        logger.info("Transcription completed successfully.")  # 記錄轉錄成功
 
     except Exception as e:
         logger.error("Error during transcription: %s", e)  # 記錄錯誤信息
@@ -54,7 +61,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         os.remove(temp_audio_path)
         logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
 
-    return {"srt": srt_output}
+    return {"srt": srt_output, "txt": txt_output}
 
 # 運行 FastAPI
 if __name__ == "__main__":
