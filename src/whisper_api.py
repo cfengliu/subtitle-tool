@@ -1,3 +1,4 @@
+import torch
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, UploadFile, File
 import tempfile
@@ -8,9 +9,13 @@ import logging
 logging.basicConfig(level=logging.INFO)  # 設置日誌級別為 INFO
 logger = logging.getLogger(__name__)  # 獲取當前模塊的日誌記錄器
 
+# 檢測是否有 CUDA 可用
+device = "cuda" if torch.cuda.is_available() else "cpu"
+compute_type = "float16" if device == "cuda" else "int8"
+logger.info(f"使用設備: {device}, 計算類型: {compute_type}")
+
 # 初始化 Whisper 模型
-model = WhisperModel("large-v3", device="cuda", compute_type="float16")  # GPU
-# model = WhisperModel("medium", device="cpu", compute_type="int8")  # CPU
+model = WhisperModel("large-v3", device=device, compute_type=compute_type)
 
 app = FastAPI()
 
