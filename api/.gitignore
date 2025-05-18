@@ -1,0 +1,41 @@
+# === Python cache ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+
+# === Env ===
+.env
+.env.*
+*.env
+
+# === Virtualenv ===
+.venv/
+venv/
+ENV/
+
+# === Pip tools ===
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Test output ===
+htmlcov/
+.coverage
+.tox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# === Editor/IDE ===
+.vscode/
+.idea/
+*.swp
+
+# === Jupyter ===
+.ipynb_checkpoints/
+
+# === Misc ===
+*.sqlite3
+*.db
