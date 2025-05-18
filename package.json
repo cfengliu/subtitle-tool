@@ -2,10 +2,18 @@
   "name": "subtitles-tool",
   "private": true,
   "workspaces": [
-    "frontend"
+    "frontend",
+    "api"
   ],
   "scripts": {
     "dev": "npm --workspace frontend run dev",
-    "build": "npm --workspace frontend run build"
+    "build": "npm --workspace frontend run build",
+    "dev:api": "cd api && uvicorn src.whisper_api:app --reload",
+    "build:api": "cd api && pip install -r requirements.txt",
+    "start:all": "concurrently \"npm run dev\" \"npm run dev:api\"",
+    "build:all": "npm run build && npm run build:api"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
   }
 } 
