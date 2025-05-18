@@ -1,0 +1,11 @@
+{
+  "name": "subtitles-tool",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm --workspace frontend run dev",
+    "build": "npm --workspace frontend run build"
+  }
+} 
