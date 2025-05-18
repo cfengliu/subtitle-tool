@@ -1,50 +1,81 @@
-# Whisper API
+# Subtitles Tool Monorepo（字幕工具）
 
-这是一个基于 FastAPI 的音频转录服务，使用 Faster Whisper 模型进行语音识别。
+這是一個語音轉文字的字幕工具 monorepo，整合：
+* 🎧 api/：使用 FastAPI 與 Faster Whisper 的音訊轉錄後端
+* 🖥️ frontend/：使用 React 實作的字幕上傳與顯示介面
 
-## 依赖项
+本專案使用 npm workspace 管理各子模組，方便統一依賴與指令管理。
 
-请确保安装以下依赖项：
+## 📁 專案結構
+```
+subtitles-tool/
+├── api/                          # 後端服務（非 Node 專案）
+│   ├── requirements.txt
+│   └── src/
+│       └── whisper_api.py
+│
+├── frontend/                     # React 前端
+│   ├── public/
+│   ├── src/
+│   │   └── App.tsx
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── package.json                  # root package，使用 npm workspace 管理 frontend
+├── README.md
+└── LICENSE
+```
+## 📦 npm workspace 設定
 
-```bash
-pip install -r requirements.txt
+package.json（root）內容範例如下：
+```
+{
+  "name": "subtitles-tool",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm --workspace frontend run dev",
+    "build": "npm --workspace frontend run build"
+  }
+}
 ```
 
-`requirements.txt` 文件内容如下：
+你可以透過 root 執行 workspace 指令，例如：
+```
+npm run dev
+npm install -w frontend some-package
+```
 
-## 使用方法
+## 🔧 使用說明
 
-1. **启动服务**:
-   在项目目录中运行以下命令以启动 FastAPI 服务：
+### 一、後端（api/）
 
-   ```bash
-   uvicorn src.whisper_api:app --host 0.0.0.0 --port 8000
-   ```
+```
+cd api
+pip install -r requirements.txt
+uvicorn src.whisper_api:app --host 0.0.0.0 --port 8000
+```
 
-2. **发送音频文件**:
-   使用 POST 请求将音频文件发送到 `/transcribe/` 端点。可以使用工具如 Postman 或 curl 进行测试。
+POST 測試：
+```
+curl -X POST "http://localhost:8000/transcribe/" -F "file=@path/to/audio.mp3"
+```
 
-   示例 curl 命令：
+### 二、前端（frontend/）
 
-   ```bash
-   curl -X POST "http://localhost:8000/transcribe/" -F "file=@path/to/your/audio.mp3"
-   ```
+```
+npm install            # 從 root 安裝所有 workspace 相依
+npm run dev            # 啟動前端（http://localhost:3000）
+```
 
-3. **获取转录结果**:
-   服务将返回一个 JSON 响应，包含转录文本：
+## 🧱 建議擴充
 
-   ```json
-   {
-       "transcript": "转录的文本内容"
-   }
-   ```
+* 加入 @types/shared 資料夾來共享 TS 型別
+* 加入 electron/ 或 mobile/ 資料夾實作桌面或行動版本
+* 加入 scripts/ 夾儲存轉檔工具等 CLI 工具
 
-## 注意事项
+📝 授權
 
-- 确保你的环境中安装了 CUDA 工具包（如果使用 GPU 版本的 Faster Whisper）。
-- 可以根据需要修改 `src/whisper_api.py` 中的模型配置。
-
-## 许可证
-
-此项目使用 MIT 许可证。请查看 LICENSE 文件以获取更多信息。
- 
+本專案使用 MIT 授權，詳見 LICENSE 檔案。
