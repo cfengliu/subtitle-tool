@@ -147,27 +147,27 @@ export default function AudioTranscriptionPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div
-                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-                  dragActive
-                    ? "border-primary bg-primary/5"
-                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <FileAudio className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <div className="space-y-2">
-                  <Label htmlFor="file-upload" className="cursor-pointer">
-                    <span className="text-sm font-medium">點擊上傳或拖拽文件</span>
-                  </Label>
-                  <Input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
-                  <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音頻格式</p>
-                </div>
+              <div>
+                <Label htmlFor="file-upload" className="cursor-pointer">
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer hover:bg-muted/50 ${dragActive
+                        ? "border-primary bg-primary/5"
+                        : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                      }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                  >
+                    <FileAudio className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <div className="space-y-2">
+                      <span className="text-sm font-medium">點擊上傳或拖拽文件</span>
+                      <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音頻格式</p>
+                    </div>
+                  </div>
+                </Label>
+                <Input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
               </div>
-
               {file && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
@@ -177,15 +177,15 @@ export default function AudioTranscriptionPage() {
                       {(file.size / 1024 / 1024).toFixed(2)} MB
                     </span>
                   </div>
-                  
+
                   {audioUrl && (
                     <div className="p-4 bg-muted rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Volume2 className="w-4 h-4" />
                         <span className="text-sm font-medium">音頻預覽</span>
                       </div>
-                      <audio 
-                        controls 
+                      <audio
+                        controls
                         className="w-full"
                         preload="metadata"
                       >
@@ -253,8 +253,8 @@ export default function AudioTranscriptionPage() {
                       <Volume2 className="w-4 h-4" />
                       <span className="text-sm font-medium">原始音頻</span>
                     </div>
-                    <audio 
-                      controls 
+                    <audio
+                      controls
                       className="w-full"
                       preload="metadata"
                     >
@@ -268,22 +268,20 @@ export default function AudioTranscriptionPage() {
                 <div className="flex space-x-1 bg-muted p-1 rounded-lg">
                   <button
                     onClick={() => setActiveTab('txt')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      activeTab === 'txt'
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'txt'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                      }`}
                   >
                     <FileText className="w-4 h-4" />
                     純文本
                   </button>
                   <button
                     onClick={() => setActiveTab('srt')}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      activeTab === 'srt'
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'srt'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                      }`}
                   >
                     <Subtitles className="w-4 h-4" />
                     SRT字幕
