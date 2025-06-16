@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { Upload, FileAudio, Loader2, CheckCircle, AlertCircle, FileText, Subtitles } from "lucide-react"
+import { Upload, FileAudio, Loader2, CheckCircle, AlertCircle, FileText, Subtitles, Play, Pause, Volume2 } from "lucide-react"
 
 interface TranscriptionResult {
   srt?: string
@@ -35,6 +35,7 @@ export default function AudioTranscriptionPage() {
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [activeTab, setActiveTab] = useState<'srt' | 'txt'>('txt')
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -56,6 +57,8 @@ export default function AudioTranscriptionPage() {
       if (droppedFile.type.startsWith("audio/")) {
         setFile(droppedFile)
         setError(null)
+        const url = URL.createObjectURL(droppedFile)
+        setAudioUrl(url)
       } else {
         setError("Please select an audio file")
       }
@@ -68,6 +71,8 @@ export default function AudioTranscriptionPage() {
       if (selectedFile.type.startsWith("audio/")) {
         setFile(selectedFile)
         setError(null)
+        const url = URL.createObjectURL(selectedFile)
+        setAudioUrl(url)
       } else {
         setError("Please select an audio file")
       }
@@ -117,6 +122,10 @@ export default function AudioTranscriptionPage() {
     setFile(null)
     setResult(null)
     setError(null)
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl)
+      setAudioUrl(null)
+    }
   }
 
   return (
@@ -160,12 +169,31 @@ export default function AudioTranscriptionPage() {
               </div>
 
               {file && (
-                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                  <FileAudio className="w-4 h-4" />
-                  <span className="text-sm font-medium">{file.name}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <FileAudio className="w-4 h-4" />
+                    <span className="text-sm font-medium">{file.name}</span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </span>
+                  </div>
+                  
+                  {audioUrl && (
+                    <div className="p-4 bg-muted rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Volume2 className="w-4 h-4" />
+                        <span className="text-sm font-medium">音頻預覽</span>
+                      </div>
+                      <audio 
+                        controls 
+                        className="w-full"
+                        preload="metadata"
+                      >
+                        <source src={audioUrl} type={file.type} />
+                        您的瀏覽器不支持音頻播放器。
+                      </audio>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -219,6 +247,23 @@ export default function AudioTranscriptionPage() {
           <CardContent>
             {result ? (
               <div className="space-y-4">
+                {audioUrl && (
+                  <div className="p-4 bg-muted rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Volume2 className="w-4 h-4" />
+                      <span className="text-sm font-medium">原始音頻</span>
+                    </div>
+                    <audio 
+                      controls 
+                      className="w-full"
+                      preload="metadata"
+                    >
+                      <source src={audioUrl} type={file?.type} />
+                      您的瀏覽器不支持音頻播放器。
+                    </audio>
+                  </div>
+                )}
+
                 {/* Format Tabs */}
                 <div className="flex space-x-1 bg-muted p-1 rounded-lg">
                   <button
