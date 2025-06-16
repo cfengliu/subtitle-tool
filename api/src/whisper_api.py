@@ -68,3 +68,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
         logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
 
     return {"srt": srt_output, "txt": txt_output}
+
+@app.get("/health")
+async def health_check():
+    """健康檢查端點"""
+    return {"status": "healthy", "message": "API 服務運行正常"}
