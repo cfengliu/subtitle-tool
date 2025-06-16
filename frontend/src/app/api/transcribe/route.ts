@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     apiFormData.append("file", file)
 
     // Replace with your actual API endpoint
-    const API_BASE_URL = process.env.TRANSCRIPTION_API_URL || "http://localhost:8000"
+    const API_BASE_URL = process.env.TRANSCRIPTION_API_URL || "http://localhost:8010"
 
     const response = await fetch(`${API_BASE_URL}/transcribe/`, {
       method: "POST",
