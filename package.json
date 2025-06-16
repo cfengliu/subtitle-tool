@@ -18,5 +18,12 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-progress": "^1.1.7",
+    "class-variance-authority": "^0.7.1",
+    "lucide-react": "^0.515.0",
+    "tailwind-merge": "^3.3.1"
   }
-} 
+}

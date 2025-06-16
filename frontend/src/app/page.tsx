@@ -1,103 +1,303 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import type React from "react"
+
+import { useState, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Progress } from "@/components/ui/progress"
+import { Upload, FileAudio, Loader2, CheckCircle, AlertCircle, FileText, Subtitles } from "lucide-react"
+
+interface TranscriptionResult {
+  srt?: string
+  txt?: string
+  [key: string]: any
+}
+
+interface ValidationError {
+  loc: (string | number)[]
+  msg: string
+  type: string
+}
+
+interface HTTPValidationError {
+  detail: ValidationError[]
+}
+
+export default function AudioTranscriptionPage() {
+  const [file, setFile] = useState<File | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [result, setResult] = useState<TranscriptionResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [activeTab, setActiveTab] = useState<'srt' | 'txt'>('txt')
+
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true)
+    } else if (e.type === "dragleave") {
+      setDragActive(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0]
+      if (droppedFile.type.startsWith("audio/")) {
+        setFile(droppedFile)
+        setError(null)
+      } else {
+        setError("Please select an audio file")
+      }
+    }
+  }, [])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const selectedFile = e.target.files[0]
+      if (selectedFile.type.startsWith("audio/")) {
+        setFile(selectedFile)
+        setError(null)
+      } else {
+        setError("Please select an audio file")
+      }
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!file) {
+      setError("Please select a file")
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        if (response.status === 422) {
+          const errorData: HTTPValidationError = await response.json()
+          const errorMessages = errorData.detail.map((err) => err.msg).join(", ")
+          throw new Error(`Validation error: ${errorMessages}`)
+        }
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data: TranscriptionResult = await response.json()
+      setResult(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred during transcription")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const resetForm = () => {
+    setFile(null)
+    setResult(null)
+    setError(null)
+  }
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="container mx-auto py-8 px-4 max-w-6xl">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold mb-2">音頻轉錄工具</h1>
+        <p className="text-muted-foreground">上傳音頻文件獲取準確的轉錄結果</p>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Upload Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              上傳音頻文件
+            </CardTitle>
+            <CardDescription>選擇或拖拽音頻文件進行轉錄</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  dragActive
+                    ? "border-primary bg-primary/5"
+                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                }`}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                <FileAudio className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <div className="space-y-2">
+                  <Label htmlFor="file-upload" className="cursor-pointer">
+                    <span className="text-sm font-medium">點擊上傳或拖拽文件</span>
+                  </Label>
+                  <Input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
+                  <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音頻格式</p>
+                </div>
+              </div>
+
+              {file && (
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                  <FileAudio className="w-4 h-4" />
+                  <span className="text-sm font-medium">{file.name}</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </span>
+                </div>
+              )}
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex gap-2">
+                <Button type="submit" disabled={!file || isLoading} className="flex-1">
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      轉錄中...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4 mr-2" />
+                      開始轉錄
+                    </>
+                  )}
+                </Button>
+                {(file || result) && (
+                  <Button type="button" onClick={resetForm} variant="outline">
+                    重置
+                  </Button>
+                )}
+              </div>
+
+              {isLoading && (
+                <div className="space-y-2">
+                  <Progress value={undefined} className="w-full" />
+                  <p className="text-sm text-center text-muted-foreground">正在處理您的音頻文件...</p>
+                </div>
+              )}
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Results Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              轉錄結果
+            </CardTitle>
+            <CardDescription>轉錄的文本將在這裡顯示</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {result ? (
+              <div className="space-y-4">
+                {/* Format Tabs */}
+                <div className="flex space-x-1 bg-muted p-1 rounded-lg">
+                  <button
+                    onClick={() => setActiveTab('txt')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      activeTab === 'txt'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    純文本
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('srt')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      activeTab === 'srt'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Subtitles className="w-4 h-4" />
+                    SRT字幕
+                  </button>
+                </div>
+
+                {/* Content Display */}
+                <div className="p-4 bg-muted rounded-lg">
+                  <Label className="text-sm font-medium mb-2 block">
+                    {activeTab === 'txt' ? '轉錄文本：' : 'SRT字幕：'}
+                  </Label>
+                  <Textarea
+                    value={activeTab === 'txt' ? result.txt || '' : result.srt || ''}
+                    readOnly
+                    className="min-h-[300px] resize-none font-mono text-sm"
+                    placeholder={activeTab === 'txt' ? '轉錄文本將在這裡顯示...' : 'SRT字幕將在這裡顯示...'}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      const text = activeTab === 'txt' ? result.txt || '' : result.srt || ''
+                      navigator.clipboard.writeText(text)
+                    }}
+                    className="flex-1"
+                  >
+                    複製到剪貼板
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const text = activeTab === 'txt' ? result.txt || '' : result.srt || ''
+                      const blob = new Blob([text], { type: 'text/plain' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `transcription.${activeTab}`
+                      document.body.appendChild(a)
+                      a.click()
+                      document.body.removeChild(a)
+                      URL.revokeObjectURL(url)
+                    }}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    下載文件
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <FileAudio className="w-12 h-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">上傳音頻文件以查看轉錄結果</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  );
+  )
 }
