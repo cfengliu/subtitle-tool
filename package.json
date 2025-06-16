@@ -10,10 +10,10 @@
     "build:api": "cd api && pip install -r requirements.txt",
     "build:all": "npm run build:fe && npm run build:api",
     "dev:fe": "npm --workspace frontend run dev",
-    "dev:api": "cd api && uvicorn src.whisper_api:app --reload",
+    "dev:api": "uvicorn api.src.whisper_api:app --host 0.0.0.0 --port 8000 --reload",
     "dev:all": "concurrently \"npm run dev:fe\" \"npm run dev:api\"",
     "start:fe": "npm --workspace frontend run start",
-    "start:api": "cd api && uvicorn src.whisper_api:app",
+    "start:api": "cd api && uvicorn src.whisper_api:app --host 0.0.0.0 --port 8000",
     "start:all": "concurrently \"npm run start:fe\" \"npm run start:api\""
   },
   "devDependencies": {

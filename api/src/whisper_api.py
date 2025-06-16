@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)  # 獲取當前模塊的日誌記錄器
 device = "cuda" if torch.cuda.is_available() else "cpu"
 compute_type = "float16" if device == "cuda" else "int8"
 logger.info(f"使用設備: {device}, 計算類型: {compute_type}")
+logger.info("API server started on port http://localhost:8000")
 
 # 初始化 Whisper 模型
 model = WhisperModel("large-v3", device=device, compute_type=compute_type)
@@ -67,8 +68,3 @@ async def transcribe_audio(file: UploadFile = File(...)):
         logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
 
     return {"srt": srt_output, "txt": txt_output}
-
-# 運行 FastAPI
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
