@@ -131,8 +131,8 @@ export default function AudioTranscriptionPage() {
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2">音頻轉錄工具</h1>
-        <p className="text-muted-foreground">上傳音頻文件獲取準確的轉錄結果</p>
+        <h1 className="text-3xl font-bold mb-2">音檔轉錄工具</h1>
+        <p className="text-muted-foreground">上傳音檔文件獲取準確的轉錄結果</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -141,9 +141,9 @@ export default function AudioTranscriptionPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5" />
-              上傳音頻文件
+              上傳音檔文件
             </CardTitle>
-            <CardDescription>選擇或拖拽音頻文件進行轉錄</CardDescription>
+            <CardDescription>選擇或拖拽音檔文件進行轉錄</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -162,7 +162,7 @@ export default function AudioTranscriptionPage() {
                     <FileAudio className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                     <div className="space-y-2">
                       <span className="text-sm font-medium">點擊上傳或拖拽文件</span>
-                      <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音頻格式</p>
+                      <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音檔格式</p>
                     </div>
                   </div>
                 </Label>
@@ -182,7 +182,7 @@ export default function AudioTranscriptionPage() {
                     <div className="p-4 bg-muted rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Volume2 className="w-4 h-4" />
-                        <span className="text-sm font-medium">音頻預覽</span>
+                        <span className="text-sm font-medium">音檔預覽</span>
                       </div>
                       <audio
                         controls
@@ -190,7 +190,7 @@ export default function AudioTranscriptionPage() {
                         preload="metadata"
                       >
                         <source src={audioUrl} type={file.type} />
-                        您的瀏覽器不支持音頻播放器。
+                        您的瀏覽器不支持音檔播放器。
                       </audio>
                     </div>
                   )}
@@ -228,7 +228,7 @@ export default function AudioTranscriptionPage() {
               {isLoading && (
                 <div className="space-y-2">
                   <Progress value={undefined} className="w-full" />
-                  <p className="text-sm text-center text-muted-foreground">正在處理您的音頻文件...</p>
+                  <p className="text-sm text-center text-muted-foreground">正在處理您的音檔文件...</p>
                 </div>
               )}
             </form>
@@ -251,7 +251,7 @@ export default function AudioTranscriptionPage() {
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Volume2 className="w-4 h-4" />
-                      <span className="text-sm font-medium">原始音頻</span>
+                      <span className="text-sm font-medium">原始音檔</span>
                     </div>
                     <audio
                       controls
@@ -259,7 +259,7 @@ export default function AudioTranscriptionPage() {
                       preload="metadata"
                     >
                       <source src={audioUrl} type={file?.type} />
-                      您的瀏覽器不支持音頻播放器。
+                      您的瀏覽器不支持音檔播放器。
                     </audio>
                   </div>
                 )}
@@ -335,7 +335,7 @@ export default function AudioTranscriptionPage() {
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <FileAudio className="w-12 h-12 text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">上傳音頻文件以查看轉錄結果</p>
+                <p className="text-muted-foreground">上傳音檔文件以查看轉錄結果</p>
               </div>
             )}
           </CardContent>
