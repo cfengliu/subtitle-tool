@@ -1,10 +1,14 @@
 import torch
 from faster_whisper import WhisperModel
-from fastapi import FastAPI, UploadFile, File, Form
-from typing import Optional
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from typing import Optional, Dict
 import tempfile
 import os
 import logging
+import uuid
+import threading
+import time
+from multiprocessing import Process, Queue, Manager
 
 # 設置日誌配置
 logging.basicConfig(level=logging.INFO)  # 設置日誌級別為 INFO
@@ -20,6 +24,34 @@ logger.info("API server started on port http://localhost:8010")
 model = WhisperModel("large-v3", device=device, compute_type=compute_type)
 
 app = FastAPI()
+
+# 任務管理
+active_tasks: Dict[str, Dict] = {}  # 存儲活躍的轉錄任務
+task_results: Dict[str, Dict] = {}  # 存儲完成的任務結果
+
+class TranscriptionTask:
+    def __init__(self, task_id: str):
+        self.task_id = task_id
+        self.status = "running"
+        self.progress = 0
+        self.process = None  # 存儲進程對象
+        
+    def cancel(self):
+        """強制終止轉錄進程"""
+        if self.process and self.process.is_alive():
+            logger.info(f"Terminating process for task {self.task_id}")
+            self.process.terminate()  # 發送 SIGTERM
+            time.sleep(1)  # 等待進程優雅退出
+            
+            if self.process.is_alive():
+                logger.info(f"Force killing process for task {self.task_id}")
+                self.process.kill()  # 強制殺死進程 SIGKILL
+                
+            self.process.join(timeout=5)  # 等待進程結束
+        self.status = "cancelled"
+        
+    def is_cancelled(self):
+        return self.status == "cancelled"
 
 def format_timestamp(seconds: float) -> str:
     """將秒數格式化為 SRT 格式的時間字符串（hh:mm:ss,mmm）"""
@@ -82,26 +114,15 @@ def add_chinese_punctuation(text: str, language: str) -> str:
     
     return text
 
-@app.post("/transcribe/")
-async def transcribe_audio(
-    file: UploadFile = File(...),
-    language: Optional[str] = Form(None)
-):
-    logger.info("Received file: %s", file.filename)  # 記錄接收到的文件名
-    if language:
-        logger.info("Language specified: %s", language)  # 記錄指定的語言
-    else:
-        logger.info("No language specified, will auto-detect")  # 記錄將自動偵測語言
-
-    # 暫存檔案
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
-        temp_audio.write(await file.read())
-        temp_audio_path = temp_audio.name
-        logger.info("Temporary file created at: %s", temp_audio_path)  # 記錄暫存文件路徑
-
+def transcribe_worker(audio_path: str, language: Optional[str], result_queue: Queue, progress_dict: dict, task_id: str):
+    """在獨立進程中執行轉錄的工作函數"""
     try:
-        # 轉錄音頻，如果有指定語言就使用，否則自動偵測
-        # 添加 word_timestamps=True 和其他參數來改善中文標點符號識別
+        # 在子進程中重新初始化模型
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        compute_type = "float16" if device == "cuda" else "int8"
+        worker_model = WhisperModel("large-v3", device=device, compute_type=compute_type)
+        
+        # 轉錄音頻
         transcribe_options = {
             "word_timestamps": True,
             "vad_filter": True,
@@ -109,20 +130,24 @@ async def transcribe_audio(
         }
         
         if language:
-            segments, info = model.transcribe(temp_audio_path, language=language, **transcribe_options)
+            segments, info = worker_model.transcribe(audio_path, language=language, **transcribe_options)
             detected_language = language
         else:
-            segments, info = model.transcribe(temp_audio_path, **transcribe_options)
+            segments, info = worker_model.transcribe(audio_path, **transcribe_options)
             detected_language = info.language
-        
-        logger.info("Detected/Used language: %s", detected_language)  # 記錄偵測到或使用的語言
         
         # 生成 SRT 格式
         srt_output = ""
         # 生成純文本格式
         txt_output = ""
         
-        for i, segment in enumerate(segments, start=1):
+        segments_list = list(segments)
+        total_segments = len(segments_list)
+        
+        for i, segment in enumerate(segments_list, start=1):
+            # 更新進度
+            progress_dict[task_id] = int((i / total_segments) * 100)
+            
             start_ts = format_timestamp(segment.start)
             end_ts = format_timestamp(segment.end)
             
@@ -141,22 +166,184 @@ async def transcribe_audio(
         if detected_language == 'zh':
             txt_output = add_chinese_punctuation(txt_output, detected_language)
         
-        logger.info("Transcription completed successfully.")  # 記錄轉錄成功
-
+        # 設置最終進度
+        progress_dict[task_id] = 100
+        
+        # 返回結果
+        result = {
+            "srt": srt_output, 
+            "txt": txt_output,
+            "detected_language": detected_language,
+            "status": "completed"
+        }
+        result_queue.put(result)
+        
     except Exception as e:
-        logger.error("Error during transcription: %s", e)  # 記錄錯誤信息
-        return {"error": "Transcription failed."}
+        logger.error("Error during transcription: %s", e)
+        error_result = {"error": "Transcription failed.", "status": "error"}
+        result_queue.put(error_result)
 
-    finally:
-        # 刪除暫存文件
-        os.remove(temp_audio_path)
-        logger.info("Temporary file deleted: %s", temp_audio_path)  # 記錄暫存文件刪除
+@app.post("/transcribe/")
+async def start_transcribe_audio(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None)
+):
+    """啟動轉錄任務，返回任務ID"""
+    task_id = str(uuid.uuid4())
+    logger.info(f"Starting transcription task {task_id} for file: {file.filename}")
+    
+    if language:
+        logger.info("Language specified: %s", language)
+    else:
+        logger.info("No language specified, will auto-detect")
 
-    return {
-        "srt": srt_output, 
-        "txt": txt_output,
-        "detected_language": detected_language
+    # 暫存檔案
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
+        temp_audio.write(await file.read())
+        temp_audio_path = temp_audio.name
+        logger.info("Temporary file created at: %s", temp_audio_path)
+
+    # 創建任務
+    task = TranscriptionTask(task_id)
+    
+    # 創建進程間通信對象
+    result_queue = Queue()
+    manager = Manager()
+    progress_dict = manager.dict()
+    progress_dict[task_id] = 0
+    
+    # 創建並啟動轉錄進程
+    process = Process(
+        target=transcribe_worker,
+        args=(temp_audio_path, language, result_queue, progress_dict, task_id)
+    )
+    process.start()
+    task.process = process
+    
+    active_tasks[task_id] = {
+        "task": task,
+        "temp_file": temp_audio_path,
+        "filename": file.filename,
+        "process": process,
+        "result_queue": result_queue,
+        "progress_dict": progress_dict
     }
+    
+    # 在後台線程中監控進程
+    def monitor_process():
+        try:
+            process.join()  # 等待進程完成
+            
+            if not result_queue.empty():
+                result = result_queue.get()
+                if result.get("status") == "completed":
+                    task_results[task_id] = result
+                    task.status = "completed"
+                else:
+                    task.status = "error"
+            else:
+                # 進程被終止
+                task.status = "cancelled"
+                
+        except Exception as e:
+            logger.error(f"Error monitoring process for task {task_id}: {e}")
+            task.status = "error"
+        finally:
+            # 清理暫存文件
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+                logger.info("Temporary file deleted: %s", temp_audio_path)
+            # 從活躍任務中移除
+            if task_id in active_tasks:
+                del active_tasks[task_id]
+    
+    monitor_thread = threading.Thread(target=monitor_process)
+    monitor_thread.start()
+    
+    return {
+        "task_id": task_id,
+        "status": "started",
+        "message": "轉錄任務已啟動"
+    }
+
+@app.post("/transcribe/{task_id}/cancel")
+async def cancel_transcribe_task(task_id: str):
+    """強制取消指定的轉錄任務"""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="任務不存在或已完成")
+    
+    task_info = active_tasks[task_id]
+    task = task_info["task"]
+    
+    logger.info(f"Force cancelling task {task_id}")
+    task.cancel()  # 這會強制終止進程
+    
+    return {
+        "task_id": task_id,
+        "status": "cancelled",
+        "message": "任務已被強制終止"
+    }
+
+@app.get("/transcribe/{task_id}/status")
+async def get_task_status(task_id: str):
+    """獲取任務狀態"""
+    # 檢查活躍任務
+    if task_id in active_tasks:
+        task = active_tasks[task_id]["task"]
+        progress_dict = active_tasks[task_id]["progress_dict"]
+        current_progress = progress_dict.get(task_id, 0)
+        
+        return {
+            "task_id": task_id,
+            "status": task.status,
+            "progress": current_progress,
+            "filename": active_tasks[task_id]["filename"]
+        }
+    
+    # 檢查已完成任務
+    if task_id in task_results:
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "progress": 100
+        }
+    
+    raise HTTPException(status_code=404, detail="任務不存在")
+
+@app.get("/transcribe/{task_id}/result")
+async def get_task_result(task_id: str):
+    """獲取任務結果"""
+    if task_id not in task_results:
+        if task_id in active_tasks:
+            task = active_tasks[task_id]["task"]
+            if task.status == "running":
+                raise HTTPException(status_code=202, detail="任務仍在進行中")
+            elif task.status == "cancelled":
+                raise HTTPException(status_code=410, detail="任務已被取消")
+            else:
+                raise HTTPException(status_code=500, detail="任務執行失敗")
+        else:
+            raise HTTPException(status_code=404, detail="任務不存在")
+    
+    result = task_results[task_id]
+    # 返回結果後清理
+    del task_results[task_id]
+    
+    return result
+
+@app.get("/transcribe/tasks")
+async def list_active_tasks():
+    """列出所有活躍任務"""
+    tasks = []
+    for task_id, task_info in active_tasks.items():
+        task = task_info["task"]
+        tasks.append({
+            "task_id": task_id,
+            "status": task.status,
+            "progress": task.progress,
+            "filename": task_info["filename"]
+        })
+    return {"active_tasks": tasks}
 
 @app.get("/languages")
 async def get_supported_languages():
