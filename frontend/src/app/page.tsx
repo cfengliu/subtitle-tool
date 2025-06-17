@@ -10,11 +10,13 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { Upload, FileAudio, Loader2, CheckCircle, AlertCircle, FileText, Subtitles, Play, Pause, Volume2 } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Upload, FileAudio, Loader2, CheckCircle, AlertCircle, FileText, Subtitles, Play, Pause, Volume2, Languages } from "lucide-react"
 
 interface TranscriptionResult {
   srt?: string
   txt?: string
+  detected_language?: string
   [key: string]: any
 }
 
@@ -30,12 +32,33 @@ interface HTTPValidationError {
 
 export default function AudioTranscriptionPage() {
   const [file, setFile] = useState<File | null>(null)
+  const [language, setLanguage] = useState<string>("auto")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<TranscriptionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [activeTab, setActiveTab] = useState<'srt' | 'txt'>('txt')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+
+  // 常用語言列表
+  const commonLanguages = [
+    { code: "auto", name: "自動偵測" },
+    { code: "zh", name: "中文" },
+    { code: "en", name: "English" },
+    { code: "ja", name: "日本語" },
+    { code: "ko", name: "한국어" },
+    { code: "es", name: "Español" },
+    { code: "fr", name: "Français" },
+    { code: "de", name: "Deutsch" },
+    { code: "it", name: "Italiano" },
+    { code: "pt", name: "Português" },
+    { code: "ru", name: "Русский" },
+    { code: "ar", name: "العربية" },
+    { code: "hi", name: "हिन्दी" },
+    { code: "th", name: "ไทย" },
+    { code: "vi", name: "Tiếng Việt" },
+    { code: "tr", name: "Türkçe" },
+  ]
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -94,6 +117,9 @@ export default function AudioTranscriptionPage() {
     try {
       const formData = new FormData()
       formData.append("file", file)
+      if (language && language !== "auto") {
+        formData.append("language", language)
+      }
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -120,6 +146,7 @@ export default function AudioTranscriptionPage() {
 
   const resetForm = () => {
     setFile(null)
+    setLanguage("auto")
     setResult(null)
     setError(null)
     if (audioUrl) {
@@ -168,6 +195,30 @@ export default function AudioTranscriptionPage() {
                 </Label>
                 <Input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
               </div>
+              
+              {/* Language Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="language-select" className="flex items-center gap-2">
+                  <Languages className="w-4 h-4" />
+                  選擇語言
+                </Label>
+                <Select value={language} onValueChange={setLanguage}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇語言或自動偵測" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {commonLanguages.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.code}>
+                        {lang.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  選擇音檔的語言，或留空讓系統自動偵測
+                </p>
+              </div>
+
               {file && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
@@ -247,6 +298,17 @@ export default function AudioTranscriptionPage() {
           <CardContent>
             {result ? (
               <div className="space-y-4">
+                {/* Language Detection Result */}
+                {result.detected_language && (
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <Languages className="w-4 h-4" />
+                    <span className="text-sm font-medium">偵測語言:</span>
+                    <span className="text-sm text-muted-foreground">
+                      {commonLanguages.find(lang => lang.code === result.detected_language)?.name || result.detected_language}
+                    </span>
+                  </div>
+                )}
+
                 {audioUrl && (
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
