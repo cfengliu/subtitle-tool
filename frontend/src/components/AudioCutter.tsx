@@ -16,7 +16,7 @@ const AudioCutter: React.FC<AudioCutterProps> = ({ file, onCut }) => {
   const [endTime, setEndTime] = useState<number | null>(null)
   const [cutting, setCutting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [audioUrl, setAudioUrl] = useState<string>("")
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
 
   useEffect(() => {
     const url = URL.createObjectURL(file)
@@ -93,13 +93,15 @@ const AudioCutter: React.FC<AudioCutterProps> = ({ file, onCut }) => {
 
   return (
     <div className="space-y-3">
-      <audio
-        ref={audioRef}
-        src={audioUrl}
-        controls
-        onLoadedMetadata={handleLoadedMetadata}
-        className="w-full"
-      />
+      {audioUrl && (
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          controls
+          onLoadedMetadata={handleLoadedMetadata}
+          className="w-full"
+        />
+      )}
       <div className="flex gap-2 items-center">
         <Label className="text-xs">開始時間(秒):</Label>
         <Input
