@@ -43,14 +43,13 @@ const AudioCutter: React.FC<AudioCutterProps> = ({ file, onCut }) => {
       // 讀取檔案為 ArrayBuffer
       const arrayBuffer = await file.arrayBuffer()
       // 用 Web Audio API decode
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: AudioContext }).webkitAudioContext
       const audioCtx = new AudioCtx()
       const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0))
       // 計算裁切範圍
       const sampleRate = audioBuffer.sampleRate
       const startSample = Math.floor(startTime * sampleRate)
       const endSample = Math.floor(endTime * sampleRate)
-      const length = endSample - startSample
       // 只取第一個聲道
       const channelData = audioBuffer.getChannelData(0).slice(startSample, endSample)
       // MP3 編碼
@@ -86,7 +85,7 @@ const AudioCutter: React.FC<AudioCutterProps> = ({ file, onCut }) => {
       
       onCut(cutFile)
     } catch (err) {
-      setError("裁切失敗，請確認音檔格式或重試。")
+      setError(`err: ${err}`)
     } finally {
       setCutting(false)
     }
