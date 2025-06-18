@@ -13,7 +13,7 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/components/ui/use-toast"
+import { toast } from "sonner"
 import { 
   Upload, 
   FileAudio, 
@@ -68,7 +68,6 @@ interface HTTPValidationError {
 }
 
 export default function AudioTranscriptionPage() {
-  const { toast } = useToast()
   const [file, setFile] = useState<File | null>(null)
   const [language, setLanguage] = useState<string>("auto")
   const [isLoading, setIsLoading] = useState(false)
@@ -135,8 +134,7 @@ export default function AudioTranscriptionPage() {
                 setIsLoading(false)
                 setCurrentTaskId(null)
                 fetchActiveTasks() // 刷新任務列表
-                toast({
-                  title: "轉錄完成",
+                toast("轉錄完成", {
                   description: "音檔已成功轉錄，您可以查看結果並進行編輯。",
                 })
               }
@@ -146,10 +144,8 @@ export default function AudioTranscriptionPage() {
               setIsLoading(false)
               setCurrentTaskId(null)
               fetchActiveTasks() // 刷新任務列表
-              toast({
-                title: "轉錄失敗",
+              toast.error("轉錄失敗", {
                 description: errorMsg,
-                variant: "destructive",
               })
             }
           }
@@ -161,7 +157,7 @@ export default function AudioTranscriptionPage() {
       const interval = setInterval(pollStatus, 1000) // 每秒輪詢一次
       return () => clearInterval(interval)
     }
-  }, [currentTaskId, fetchActiveTasks, toast])
+  }, [currentTaskId, fetchActiveTasks])
 
   // 定期刷新活躍任務列表
   useEffect(() => {
@@ -269,16 +265,14 @@ export default function AudioTranscriptionPage() {
       if (data.task_id) {
         setCurrentTaskId(data.task_id)
         fetchActiveTasks() // 刷新任務列表
-        toast({
-          title: "任務已啟動",
+        toast("任務已啟動", {
           description: "正在開始處理您的音檔，請稍候...",
         })
       } else {
         // 兼容舊版本直接返回結果的情況
         setResult(data)
         setIsLoading(false)
-        toast({
-          title: "轉錄完成",
+        toast("轉錄完成", {
           description: "音檔已成功轉錄。",
         })
       }
@@ -286,10 +280,8 @@ export default function AudioTranscriptionPage() {
       const errorMsg = err instanceof Error ? err.message : "轉錄過程中發生錯誤"
       setError(errorMsg)
       setIsLoading(false)
-      toast({
-        title: "轉錄失敗",
+      toast.error("轉錄失敗", {
         description: errorMsg,
-        variant: "destructive",
       })
     }
   }
@@ -305,8 +297,7 @@ export default function AudioTranscriptionPage() {
           setIsLoading(false)
         }
         fetchActiveTasks() // 刷新任務列表
-        toast({
-          title: "任務已取消",
+        toast("任務已取消", {
           description: "轉錄任務已成功取消。",
         })
       }
@@ -330,10 +321,8 @@ export default function AudioTranscriptionPage() {
 
   const copyToClipboard = async (text: string) => {
     if (!text) {
-      toast({
-        title: "內容為空",
+      toast.error("內容為空", {
         description: "沒有可複製的文字。",
-        variant: "destructive",
       })
       return
     }
@@ -355,26 +344,21 @@ export default function AudioTranscriptionPage() {
         document.body.removeChild(textarea)
       }
 
-      toast({
-        title: "已複製",
+      toast("已複製", {
         description: "內容已成功複製到剪貼板。",
       })
     } catch (error) {
       console.error("Copy failed:", error)
-      toast({
-        title: "複製失敗",
+      toast.error("複製失敗", {
         description: "無法複製到剪貼板，請手動選擇並複製。",
-        variant: "destructive",
       })
     }
   }
 
   const downloadFile = (text: string, format: 'txt' | 'srt') => {
     if (!text) {
-      toast({
-        title: "內容為空",
+      toast.error("內容為空", {
         description: "沒有可下載的內容。",
-        variant: "destructive",
       })
       return
     }
@@ -390,16 +374,13 @@ export default function AudioTranscriptionPage() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      toast({
-        title: "下載開始",
+      toast("下載開始", {
         description: `${format.toUpperCase()} 文件已開始下載。`,
       })
     } catch (err) {
       console.error("Download error:", err)
-      toast({
-        title: "下載失敗",
+      toast.error("下載失敗", {
         description: "無法下載文件，請稍後再試。",
-        variant: "destructive",
       })
     }
   }
