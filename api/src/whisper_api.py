@@ -27,7 +27,7 @@ MAX_CONCURRENT_TASKS = int(os.getenv("MAX_CONCURRENT_TASKS", "3"))  # 可通过�
 concurrent_semaphore = Semaphore(MAX_CONCURRENT_TASKS)
 
 # 初始化 Whisper 模型
-model = WhisperModel("large-v3", device=device, compute_type=compute_type)
+# model = WhisperModel("large-v3", device=device, compute_type=compute_type)
 
 app = FastAPI()
 
