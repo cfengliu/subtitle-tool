@@ -258,14 +258,13 @@ async def start_video_to_audio_conversion(
                 "error": f"Monitor thread error: {str(e)}"
             }
         finally:
-            # 清理隊列資源（如果還沒清理的話）
+            # 清理可能遺留的輸出文件
             try:
-                if 'result_queue' in locals():
-                    result_queue.close()
-                    result_queue.cancel_join_thread()
-                    logger.info(f"Final result queue cleanup for task {task_id}")
+                if 'output_path' in locals() and output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+                    logger.info(f"Cleanup: Temporary output file deleted: {output_path}")
             except Exception as cleanup_error:
-                logger.warning(f"Failed to cleanup result queue in finally block for task {task_id}: {cleanup_error}")
+                logger.warning(f"Failed to cleanup output file {output_path}: {cleanup_error}")
             
             # 释放一个并发名额
             convert_semaphore.release()
