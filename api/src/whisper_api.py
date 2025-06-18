@@ -1,3 +1,10 @@
+from multiprocessing import Process, Queue, Manager, set_start_method
+try:
+    set_start_method("spawn", force=True)
+except RuntimeError:
+    # The start‑method is already set – safe to ignore.
+    pass
+
 import torch
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -9,7 +16,6 @@ import uuid
 import threading
 from threading import Semaphore
 import time
-from multiprocessing import Process, Queue, Manager
 import opencc  # 用於簡繁轉換
 
 # 設置日誌配置
