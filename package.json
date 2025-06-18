@@ -6,15 +6,15 @@
     "api"
   ],
   "scripts": {
-    "build:fe": "npm --workspace frontend run build",
+    "build:fe": "pnpm install && pnpm --workspace frontend run build",
     "build:api": "cd api && pip install -r requirements.txt",
-    "build:all": "npm run build:fe && npm run build:api",
-    "dev:fe": "npm --workspace frontend run dev",
+    "build:all": "pnpm run build:fe && pnpm run build:api",
+    "dev:fe": "pnpm --workspace frontend run dev",
     "dev:api": "uvicorn api.src.whisper_api:app --host 0.0.0.0 --port 8010 --reload",
-    "dev:all": "concurrently \"npm run dev:fe\" \"npm run dev:api\"",
-    "start:fe": "npm --workspace frontend run start",
+    "dev:all": "concurrently \"pnpm run dev:fe\" \"pnpm run dev:api\"",
+    "start:fe": "pnpm --workspace frontend run start",
     "start:api": "uvicorn api.src.whisper_api:app --port 8010",
-    "start:all": "concurrently \"npm run start:fe\" \"npm run start:api\""
+    "start:all": "concurrently \"pnpm run start:fe\" \"pnpm run start:api\""
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
