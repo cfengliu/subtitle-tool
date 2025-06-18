@@ -329,13 +329,38 @@ export default function AudioTranscriptionPage() {
   }
 
   const copyToClipboard = async (text: string) => {
+    if (!text) {
+      toast({
+        title: "內容為空",
+        description: "沒有可複製的文字。",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
-      await navigator.clipboard.writeText(text)
+      if (navigator.clipboard && window.isSecureContext) {
+        // 現代瀏覽器，且在 HTTPS 或 localhost
+        await navigator.clipboard.writeText(text)
+      } else {
+        // 後備方案：在非安全上下文或不支援 clipboard API 時使用
+        const textarea = document.createElement("textarea")
+        textarea.value = text
+        textarea.style.position = "fixed"      // 避免跳動
+        textarea.style.left = "-9999px"
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+      }
+
       toast({
         title: "已複製",
         description: "內容已成功複製到剪貼板。",
       })
     } catch (error) {
+      console.error("Copy failed:", error)
       toast({
         title: "複製失敗",
         description: "無法複製到剪貼板，請手動選擇並複製。",
