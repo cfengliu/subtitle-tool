@@ -30,6 +30,7 @@ import {
   Copy,
   RefreshCw
 } from "lucide-react"
+import AudioCutter from "@/components/AudioCutter"
 
 interface TranscriptionResult {
   srt?: string
@@ -487,15 +488,19 @@ export default function AudioTranscriptionPage() {
                             <Volume2 className="w-4 h-4" />
                             <span className="text-sm font-medium">音檔預覽</span>
                           </div>
-                          <audio
-                            key={audioUrl}
-                            controls
-                            className="w-full"
-                            preload="metadata"
-                          >
-                            <source src={audioUrl} type={file?.type} />
-                            您的瀏覽器不支持音檔播放器。
-                          </audio>
+                          <div className="mt-4">
+                            <AudioCutter
+                              file={file}
+                              onCut={(cutFile) => {
+                                // 釋放舊 audioUrl
+                                if (audioUrl) URL.revokeObjectURL(audioUrl)
+                                setFile(cutFile)
+                                setError(null)
+                                const url = URL.createObjectURL(cutFile)
+                                setAudioUrl(url)
+                              }}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

@@ -1,8 +1,0 @@
----
-description: 
-globs: 
-alwaysApply: false
----
-# Whisper API 文件規則
-
-[api/src/whisper_api.py](mdc:api/src/whisper_api.py) 是專案的語音轉錄 API 實現，基於 FastAPI 框架，並使用 faster-whisper 模型進行音頻轉文字處理。該文件負責接收音頻文件，調用 Whisper 模型進行轉錄，並返回 SRT 及純文本格式的結果。
