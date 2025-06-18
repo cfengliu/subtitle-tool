@@ -4,7 +4,7 @@ const API_BASE_URL = process.env.TRANSCRIPTION_API_URL || "http://localhost:8010
 
 interface ApiRequestOptions {
   method: "GET" | "POST" | "PUT" | "DELETE"
-  body?: FormData | Record<string, any>
+  body?: FormData | Record<string, unknown>
   headers?: Record<string, string>
 }
 
@@ -52,11 +52,11 @@ export class ApiClient {
     return this.makeRequest(endpoint, { method: "GET", headers })
   }
 
-  static async post(endpoint: string, body?: FormData | Record<string, any>, headers?: Record<string, string>) {
+  static async post(endpoint: string, body?: FormData | Record<string, unknown>, headers?: Record<string, string>) {
     return this.makeRequest(endpoint, { method: "POST", body, headers })
   }
 
-  static async put(endpoint: string, body?: FormData | Record<string, any>, headers?: Record<string, string>) {
+  static async put(endpoint: string, body?: FormData | Record<string, unknown>, headers?: Record<string, string>) {
     return this.makeRequest(endpoint, { method: "PUT", body, headers })
   }
 

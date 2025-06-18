@@ -161,7 +161,7 @@ export default function AudioTranscriptionPage() {
       const interval = setInterval(pollStatus, 1000) // 每秒輪詢一次
       return () => clearInterval(interval)
     }
-  }, [currentTaskId, fetchActiveTasks])
+  }, [currentTaskId, fetchActiveTasks, toast])
 
   // 定期刷新活躍任務列表
   useEffect(() => {
@@ -370,12 +370,22 @@ export default function AudioTranscriptionPage() {
   }
 
   const downloadFile = (text: string, format: 'txt' | 'srt') => {
+    if (!text) {
+      toast({
+        title: "內容為空",
+        description: "沒有可下載的內容。",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `transcription.${format}`
+      a.style.display = 'none'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -384,7 +394,8 @@ export default function AudioTranscriptionPage() {
         title: "下載開始",
         description: `${format.toUpperCase()} 文件已開始下載。`,
       })
-    } catch (error) {
+    } catch (err) {
+      console.error("Download error:", err)
       toast({
         title: "下載失敗",
         description: "無法下載文件，請稍後再試。",
