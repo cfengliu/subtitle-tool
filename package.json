@@ -14,7 +14,7 @@
     "dev:all": "concurrently \"pnpm run dev:fe\" \"pnpm run dev:api\"",
     "start:fe": "pnpm --filter frontend run start --port 8002",
     "start:api": "uvicorn api.src.whisper_api:app --host 0.0.0.0 --port 8010",
-    "start:all": "concurrently -k \"pnpm run start:fe\" \"pnpm run start:api\""
+    "start:all": "concurrently -k \"pnpm run start:fe\" \"pnpm run dev:api\""
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
