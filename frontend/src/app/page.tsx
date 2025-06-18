@@ -13,7 +13,6 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Separator } from "@/components/ui/separator"
 import { 
   Upload, 
   FileAudio, 
@@ -28,7 +27,6 @@ import {
   Clock,
   Download,
   Copy,
-  Trash2,
   RefreshCw
 } from "lucide-react"
 
@@ -37,7 +35,7 @@ interface TranscriptionResult {
   txt?: string
   detected_language?: string
   status?: string
-  [key: string]: any
+  [key: string]: unknown
 }
 
 interface TaskStatus {
@@ -82,7 +80,6 @@ export default function AudioTranscriptionPage() {
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [taskProgress, setTaskProgress] = useState<number>(0)
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
-  const [supportedLanguages, setSupportedLanguages] = useState<{[key: string]: string}>({})
 
   // 常用語言列表
   const commonLanguages = [
@@ -103,22 +100,6 @@ export default function AudioTranscriptionPage() {
     { code: "vi", name: "Tiếng Việt" },
     { code: "tr", name: "Türkçe" },
   ]
-
-  // 获取支持的语言列表
-  useEffect(() => {
-    const fetchLanguages = async () => {
-      try {
-        const response = await fetch("/api/languages")
-        if (response.ok) {
-          const data = await response.json()
-          setSupportedLanguages(data.supported_languages || {})
-        }
-      } catch (error) {
-        console.error("Failed to fetch supported languages:", error)
-      }
-    }
-    fetchLanguages()
-  }, [])
 
   // 获取活跃任务列表
   const fetchActiveTasks = useCallback(async () => {
@@ -177,6 +158,15 @@ export default function AudioTranscriptionPage() {
     return () => clearInterval(interval)
   }, [fetchActiveTasks])
 
+  // 清理音频URL以防止内存泄漏
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl)
+      }
+    }
+  }, [audioUrl])
+
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -195,6 +185,11 @@ export default function AudioTranscriptionPage() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0]
       if (droppedFile.type.startsWith("audio/")) {
+        // 清理之前的音频URL
+        if (audioUrl) {
+          URL.revokeObjectURL(audioUrl)
+        }
+        
         setFile(droppedFile)
         setError(null)
         const url = URL.createObjectURL(droppedFile)
@@ -203,12 +198,17 @@ export default function AudioTranscriptionPage() {
         setError("请选择音频文件")
       }
     }
-  }, [])
+  }, [audioUrl])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0]
       if (selectedFile.type.startsWith("audio/")) {
+        // 清理之前的音频URL
+        if (audioUrl) {
+          URL.revokeObjectURL(audioUrl)
+        }
+        
         setFile(selectedFile)
         setError(null)
         const url = URL.createObjectURL(selectedFile)
@@ -417,11 +417,12 @@ export default function AudioTranscriptionPage() {
                             <span className="text-sm font-medium">音频预览</span>
                           </div>
                           <audio
+                            key={audioUrl}
                             controls
                             className="w-full"
                             preload="metadata"
                           >
-                            <source src={audioUrl} type={file.type} />
+                            <source src={audioUrl} type={file?.type} />
                             您的浏览器不支持音频播放器。
                           </audio>
                         </div>
@@ -499,8 +500,7 @@ export default function AudioTranscriptionPage() {
                         <Languages className="w-4 h-4" />
                         <span className="text-sm font-medium">检测语言:</span>
                         <span className="text-sm text-muted-foreground">
-                          {supportedLanguages[result.detected_language] || 
-                           commonLanguages.find(lang => lang.code === result.detected_language)?.name || 
+                          {commonLanguages.find(lang => lang.code === result.detected_language)?.name || 
                            result.detected_language}
                         </span>
                       </div>
@@ -513,6 +513,7 @@ export default function AudioTranscriptionPage() {
                           <span className="text-sm font-medium">原始音频</span>
                         </div>
                         <audio
+                          key={audioUrl}
                           controls
                           className="w-full"
                           preload="metadata"
