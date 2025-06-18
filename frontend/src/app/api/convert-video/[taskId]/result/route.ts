@@ -1,16 +1,10 @@
 import { NextRequest } from "next/server"
 
-interface RouteParams {
-  params: {
-    taskId: string
-  }
-}
-
 const API_BASE_URL = process.env.TRANSCRIPTION_API_URL || "http://localhost:8010"
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
-    const { taskId } = params
+    const { taskId } = await params
     
     // 直接从后端API获取音频文件
     const response = await fetch(`${API_BASE_URL}/convert/${taskId}/result`)

@@ -27,13 +27,13 @@ export default function VideoConverterPage() {
   const features = [
     {
       icon: <Zap className="w-6 h-6" />,
-      title: "快速轉換",
-      description: "在瀏覽器中直接處理，無需上傳到伺服器"
+      title: "高效轉換",
+      description: "使用專業的 FFmpeg 引擎，提供高品質的音頻轉換"
     },
     {
       icon: <Shield className="w-6 h-6" />,
-      title: "隱私保護",
-      description: "所有處理都在您的設備上完成，文件不會離開您的電腦"
+      title: "穩定可靠",
+      description: "後端處理確保轉換穩定性，支持大文件處理"
     },
     {
       icon: <FileAudio className="w-6 h-6" />,
@@ -57,7 +57,7 @@ export default function VideoConverterPage() {
     <div className="container mx-auto py-8 px-4 max-w-7xl">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold mb-2">影片轉音頻工具</h1>
-        <p className="text-muted-foreground">在瀏覽器中直接將影片轉換為音頻文件，快速、安全、免費</p>
+        <p className="text-muted-foreground">專業的影片轉音頻工具，支持多種格式轉換</p>
       </div>
 
       <Tabs defaultValue="converter" className="w-full">
@@ -214,28 +214,28 @@ export default function VideoConverterPage() {
                 <div>
                   <h4 className="font-medium mb-1">轉換需要多長時間？</h4>
                   <p className="text-sm text-muted-foreground">
-                    轉換時間取決於影片長度和您的設備性能。通常情況下，轉換速度接近實時播放速度。
+                    轉換時間取決於影片長度和文件大小。通常情況下，轉換速度很快，大部分文件在幾分鐘內完成。
                   </p>
                 </div>
                 
                 <div>
                   <h4 className="font-medium mb-1">文件大小有限制嗎？</h4>
                   <p className="text-sm text-muted-foreground">
-                    由於處理在瀏覽器中進行，建議文件大小不超過 500MB，以確保最佳性能。
+                    支持處理大文件，具體大小限制取決於伺服器配置。一般情況下支持 GB 級別的影片文件。
                   </p>
                 </div>
                 
                 <div>
                   <h4 className="font-medium mb-1">我的文件安全嗎？</h4>
                   <p className="text-sm text-muted-foreground">
-                    是的！所有轉換都在您的瀏覽器中本地完成，文件不會上傳到任何伺服器。
+                    文件處理完成後會自動清理，不會長期保存在伺服器上，確保您的隱私安全。
                   </p>
                 </div>
                 
                 <div>
-                  <h4 className="font-medium mb-1">支持哪些瀏覽器？</h4>
+                  <h4 className="font-medium mb-1">支持哪些格式？</h4>
                   <p className="text-sm text-muted-foreground">
-                    支持所有現代瀏覽器，包括 Chrome、Firefox、Safari 和 Edge 的最新版本。
+                    支持大部分常見的影片格式輸入，包括 MP4、AVI、MOV、MKV 等，輸出支援 MP3、WAV、OGG 格式。
                   </p>
                 </div>
               </div>

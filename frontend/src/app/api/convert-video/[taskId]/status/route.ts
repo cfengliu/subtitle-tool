@@ -1,18 +1,12 @@
 import { NextRequest } from "next/server"
 import { ApiClient } from "@/lib/api-client"
 
-interface RouteParams {
-  params: {
-    taskId: string
-  }
-}
-
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
-    const { taskId } = params
+    const { taskId } = await params
     
     // 转发请求到后端API
-    const response = await ApiClient.get(`/convert/${taskId}/status`)
+    const response = await ApiClient.get(`/convert/${taskId}/status`, undefined, true)
     
     return response
   } catch (error) {

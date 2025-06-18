@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -20,11 +20,21 @@ import {
   AlertCircle, 
   Download,
   Volume2,
-  Settings
+  Settings,
+  X
 } from "lucide-react"
 
 interface VideoToAudioProps {
   onAudioGenerated?: (audioFile: File) => void
+}
+
+interface ConversionTask {
+  task_id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+  progress?: number
+  error?: string
+  result_url?: string
+  filename?: string
 }
 
 export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
@@ -38,10 +48,12 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
   const [audioQuality, setAudioQuality] = useState<'high' | 'medium' | 'low'>('medium')
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTask, setCurrentTask] = useState<ConversionTask | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 格式選項
   const formatOptions = [
@@ -56,6 +68,21 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     { value: 'low', label: '低品質', bitrate: '128kbps' }
   ]
 
+  // 清理函數
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl)
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl)
+      }
+    }
+  }, [videoUrl, audioUrl])
+
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -65,6 +92,22 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
       setDragActive(false)
     }
   }, [])
+
+  const handleVideoFile = useCallback((file: File) => {
+    // 清理之前的 URL
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
+    if (audioUrl) URL.revokeObjectURL(audioUrl)
+    
+    setVideoFile(file)
+    setAudioFile(null)
+    setError(null)
+    setProgress(0)
+    setCurrentTask(null)
+    
+    const url = URL.createObjectURL(file)
+    setVideoUrl(url)
+    setAudioUrl(null)
+  }, [videoUrl, audioUrl])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -79,7 +122,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
         setError("請選擇影片文件")
       }
     }
-  }, [])
+  }, [handleVideoFile])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -92,21 +135,107 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     }
   }
 
-  const handleVideoFile = (file: File) => {
-    // 清理之前的 URL
-    if (videoUrl) URL.revokeObjectURL(videoUrl)
-    if (audioUrl) URL.revokeObjectURL(audioUrl)
-    
-    setVideoFile(file)
-    setAudioFile(null)
-    setError(null)
-    setProgress(0)
-    
-    const url = URL.createObjectURL(file)
-    setVideoUrl(url)
-    setAudioUrl(null)
+  // 輪詢任務狀態
+  const pollTaskStatus = async (taskId: string) => {
+    try {
+      const response = await fetch(`/api/convert-video/${taskId}/status`)
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.detail || '獲取任務狀態失敗')
+      }
+      
+      setCurrentTask(data)
+      
+      if (data.progress !== undefined) {
+        setProgress(data.progress)
+      }
+      
+      if (data.status === 'completed') {
+        // 任務完成，停止輪詢
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        
+        // 下載結果
+        await downloadResult(taskId)
+        setIsConverting(false)
+        
+        toast("轉換完成", {
+          description: `影片已成功轉換為 ${audioFormat.toUpperCase()} 音頻文件。`,
+        })
+      } else if (data.status === 'failed') {
+        // 任務失敗
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        
+        setError(data.error || '轉換失敗')
+        setIsConverting(false)
+        
+        toast.error("轉換失敗", {
+          description: data.error || "轉換過程中發生錯誤",
+        })
+      } else if (data.status === 'cancelled') {
+        // 任務取消
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        
+        setIsConverting(false)
+        setProgress(0)
+        
+        toast("任務已取消", {
+          description: "轉換任務已被取消",
+        })
+      }
+    } catch (err) {
+      console.error("Poll task status error:", err)
+      setError(err instanceof Error ? err.message : '獲取任務狀態失敗')
+    }
   }
 
+  // 下載轉換結果
+  const downloadResult = async (taskId: string) => {
+    try {
+      const response = await fetch(`/api/convert-video/${taskId}/result`)
+      
+      if (!response.ok) {
+        throw new Error('下載結果失敗')
+      }
+      
+      const audioBlob = await response.blob()
+      const contentDisposition = response.headers.get('content-disposition')
+      let filename = 'converted_audio.mp3'
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+        if (filenameMatch) {
+          filename = filenameMatch[1].replace(/['"]/g, '')
+        }
+      }
+      
+      const audioFile = new File([audioBlob], filename, { type: audioBlob.type })
+      setAudioFile(audioFile)
+      
+      const audioURL = URL.createObjectURL(audioBlob)
+      setAudioUrl(audioURL)
+      
+      // 調用回調函數
+      if (onAudioGenerated) {
+        onAudioGenerated(audioFile)
+      }
+      
+    } catch (err) {
+      console.error("Download result error:", err)
+      setError(err instanceof Error ? err.message : '下載結果失敗')
+    }
+  }
+
+  // 開始轉換
   const convertVideoToAudio = async () => {
     if (!videoFile) {
       setError("請選擇影片文件")
@@ -114,134 +243,74 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     }
 
     setIsConverting(true)
+    setIsUploading(true)
     setError(null)
     setProgress(0)
+    setCurrentTask(null)
 
     try {
-      // 創建 video 元素來獲取音頻
-      const video = document.createElement('video')
-      video.src = URL.createObjectURL(videoFile)
-      
-      await new Promise((resolve, reject) => {
-        video.onloadedmetadata = resolve
-        video.onerror = reject
+      // 創建 FormData
+      const formData = new FormData()
+      formData.append('file', videoFile)
+      formData.append('format', audioFormat)
+      formData.append('quality', audioQuality)
+
+      // 上傳文件並開始轉換
+      const response = await fetch('/api/convert-video', {
+        method: 'POST',
+        body: formData,
       })
 
-      // 創建 AudioContext 和相關節點
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const source = audioContext.createMediaElementSource(video)
-      const destination = audioContext.createMediaStreamDestination()
-      source.connect(destination)
-
-      // 檢查瀏覽器支持的格式
-      const getSupportedMimeType = (): string => {
-        const types = [
-          'audio/webm;codecs=opus',
-          'audio/webm',
-          'audio/ogg;codecs=opus',
-          'audio/ogg',
-          'audio/wav',
-          'audio/mpeg'
-        ]
-        
-        for (const type of types) {
-          if (MediaRecorder.isTypeSupported(type)) {
-            return type
-          }
-        }
-        
-        // 如果沒有找到支持的格式，使用默認格式
-        return 'audio/webm'
-      }
-
-      const supportedMimeType = getSupportedMimeType()
-      console.log('Using MIME type:', supportedMimeType)
-
-      // 創建 MediaRecorder 來錄製音頻
-      const mediaRecorder = new MediaRecorder(destination.stream, {
-        mimeType: supportedMimeType
-      })
-
-      const chunks: Blob[] = []
+      const data = await response.json()
       
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data)
-        }
+      if (!response.ok) {
+        throw new Error(data.detail || '上傳失敗')
       }
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: supportedMimeType })
-        
-        // 如果用戶選擇的格式與錄製格式不同，需要轉換
-        // 由於瀏覽器限制，我們先創建原始格式的文件
-        const originalExtension = getExtensionFromMimeType(supportedMimeType)
-        const convertedAudioFile = new File([audioBlob], `converted.${originalExtension}`, {
-          type: supportedMimeType
-        })
-        
-        setAudioFile(convertedAudioFile)
-        const audioURL = URL.createObjectURL(convertedAudioFile)
-        setAudioUrl(audioURL)
-        setIsConverting(false)
-        setProgress(100)
-        
-        // 調用回調函數
-        if (onAudioGenerated) {
-          onAudioGenerated(convertedAudioFile)
-        }
-        
-        toast("轉換完成", {
-          description: `影片已成功轉換為 ${originalExtension.toUpperCase()} 音頻文件。`,
-        })
-      }
-
-      // 開始錄製
-      mediaRecorder.start()
-      video.play()
-
-      // 監聽播放進度
-      const updateProgress = () => {
-        if (video.duration > 0) {
-          const progressPercent = (video.currentTime / video.duration) * 100
-          setProgress(progressPercent)
-        }
-      }
-
-      video.ontimeupdate = updateProgress
-
-      // 當影片播放完成時停止錄製
-      video.onended = () => {
-        mediaRecorder.stop()
-        audioContext.close()
-        URL.revokeObjectURL(video.src)
-      }
-
+      
+      setIsUploading(false)
+      setCurrentTask(data)
+      
+      toast("上傳成功", {
+        description: "文件已上傳，開始轉換...",
+      })
+      
+      // 開始輪詢任務狀態
+      pollIntervalRef.current = setInterval(() => {
+        pollTaskStatus(data.task_id)
+      }, 1000) // 每秒輪詢一次
+      
     } catch (err) {
       console.error("Conversion error:", err)
-      setError("轉換過程中發生錯誤：" + (err instanceof Error ? err.message : "未知錯誤"))
+      setError(err instanceof Error ? err.message : '轉換失敗')
       setIsConverting(false)
+      setIsUploading(false)
+      
       toast.error("轉換失敗", {
-        description: "無法轉換影片，請檢查文件格式或稍後再試。",
+        description: err instanceof Error ? err.message : "轉換過程中發生錯誤",
       })
     }
   }
 
-  const getMimeType = (format: string): string => {
-    switch (format) {
-      case 'mp3': return 'audio/mpeg'
-      case 'wav': return 'audio/wav'
-      case 'ogg': return 'audio/ogg'
-      default: return 'audio/mpeg'
+  // 取消轉換
+  const cancelConversion = async () => {
+    if (!currentTask) return
+    
+    try {
+      const response = await fetch(`/api/convert-video/${currentTask.task_id}/cancel`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        toast("取消成功", {
+          description: "轉換任務已取消",
+        })
+      }
+    } catch (err) {
+      console.error("Cancel conversion error:", err)
+      toast.error("取消失敗", {
+        description: "無法取消轉換任務",
+      })
     }
-  }
-
-  const getExtensionFromMimeType = (mimeType: string): string => {
-    if (mimeType.includes('webm')) return 'webm'
-    if (mimeType.includes('ogg')) return 'ogg'
-    if (mimeType.includes('wav')) return 'wav'
-    if (mimeType.includes('mpeg')) return 'mp3'
-    return 'webm'
   }
 
   const downloadAudio = () => {
@@ -253,7 +322,6 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     try {
       const a = document.createElement('a')
       a.href = audioUrl
-      // 使用實際的文件名
       a.download = audioFile.name
       a.style.display = 'none'
       document.body.appendChild(a)
@@ -271,23 +339,20 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     }
   }
 
-  const toggleVideoPlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
-        videoRef.current.play()
-      }
-      setIsPlaying(!isPlaying)
-    }
-  }
-
   const resetForm = () => {
+    // 清理輪詢
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+    
     setVideoFile(null)
     setAudioFile(null)
     setError(null)
     setProgress(0)
-    setIsPlaying(false)
+    setIsConverting(false)
+    setIsUploading(false)
+    setCurrentTask(null)
     
     if (videoUrl) {
       URL.revokeObjectURL(videoUrl)
@@ -338,6 +403,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                 accept="video/*" 
                 onChange={handleFileChange} 
                 className="hidden" 
+                disabled={isConverting}
               />
             </div>
 
@@ -348,51 +414,51 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                 <span className="text-sm font-medium">轉換設定</span>
               </div>
               
-              <div className="space-y-4">
-                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                    <strong>注意：</strong>由於瀏覽器限制，實際輸出格式將根據您的瀏覽器支持情況自動選擇（通常為 WebM 或 OGG 格式）。
-                  </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="format-select">輸出格式</Label>
+                  <Select 
+                    value={audioFormat} 
+                    onValueChange={(value: 'mp3' | 'wav' | 'ogg') => setAudioFormat(value)}
+                    disabled={isConverting}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formatOptions.map((format) => (
+                        <SelectItem key={format.value} value={format.value}>
+                          <div>
+                            <div className="font-medium">{format.label}</div>
+                            <div className="text-xs text-muted-foreground">{format.description}</div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="format-select">偏好格式</Label>
-                    <Select value={audioFormat} onValueChange={(value: 'mp3' | 'wav' | 'ogg') => setAudioFormat(value)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formatOptions.map((format) => (
-                          <SelectItem key={format.value} value={format.value}>
-                            <div>
-                              <div className="font-medium">{format.label}</div>
-                              <div className="text-xs text-muted-foreground">{format.description}</div>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="quality-select">音頻品質</Label>
-                    <Select value={audioQuality} onValueChange={(value: 'high' | 'medium' | 'low') => setAudioQuality(value)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {qualityOptions.map((quality) => (
-                          <SelectItem key={quality.value} value={quality.value}>
-                            <div>
-                              <div className="font-medium">{quality.label}</div>
-                              <div className="text-xs text-muted-foreground">{quality.bitrate}</div>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="quality-select">音頻品質</Label>
+                  <Select 
+                    value={audioQuality} 
+                    onValueChange={(value: 'high' | 'medium' | 'low') => setAudioQuality(value)}
+                    disabled={isConverting}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {qualityOptions.map((quality) => (
+                        <SelectItem key={quality.value} value={quality.value}>
+                          <div>
+                            <div className="font-medium">{quality.label}</div>
+                            <div className="text-xs text-muted-foreground">{quality.bitrate}</div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -420,8 +486,6 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                         className="w-full max-h-48 rounded-lg"
                         controls
                         preload="metadata"
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
                       />
                     </div>
                   </div>
@@ -442,7 +506,12 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                 disabled={!videoFile || isConverting} 
                 className="flex-1"
               >
-                {isConverting ? (
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    上傳中...
+                  </>
+                ) : isConverting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     轉換中...
@@ -454,7 +523,14 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                   </>
                 )}
               </Button>
-              {videoFile && (
+              
+              {isConverting && currentTask && (
+                <Button onClick={cancelConversion} variant="outline" size="icon">
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+              
+              {videoFile && !isConverting && (
                 <Button onClick={resetForm} variant="outline">
                   重置
                 </Button>
@@ -464,11 +540,23 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
             {isConverting && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span>轉換進度</span>
+                  <span>
+                    {isUploading ? '上傳進度' : '轉換進度'}
+                  </span>
                   <span>{Math.round(progress)}%</span>
                 </div>
                 <Progress value={progress} className="w-full" />
-                <p className="text-sm text-center text-muted-foreground">正在提取音頻...</p>
+                <p className="text-sm text-center text-muted-foreground">
+                  {isUploading ? '正在上傳文件...' : 
+                   currentTask?.status === 'pending' ? '等待處理...' : 
+                   currentTask?.status === 'processing' ? '正在轉換...' : 
+                   '處理中...'}
+                </p>
+                {currentTask && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    任務 ID: {currentTask.task_id}
+                  </p>
+                )}
               </div>
             )}
           </CardContent>

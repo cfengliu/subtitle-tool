@@ -5,8 +5,8 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     
-    // 转发请求到后端API
-    const response = await ApiClient.post("/convert", formData)
+    // 使用 ApiClient 转发请求到后端API，forApiRoute=true 返回原始 Response
+    const response = await ApiClient.post("/convert/", formData, undefined, true)
     
     return response
   } catch (error) {
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     // 获取活跃的转换任务列表
-    const response = await ApiClient.get("/convert/tasks")
+    const response = await ApiClient.get("/convert/tasks", undefined, true)
     
     return response
   } catch (error) {
