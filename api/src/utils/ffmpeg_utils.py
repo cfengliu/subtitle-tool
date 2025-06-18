@@ -117,6 +117,8 @@ def convert_video_to_audio(
             universal_newlines=True
         )
         
+        logger.info(f"FFmpeg process started with PID: {process.pid}")
+        
         # 监控进度
         while True:
             output = process.stderr.readline()
@@ -137,6 +139,10 @@ def convert_video_to_audio(
         
         # 等待进程完成
         stdout, stderr = process.communicate()
+        
+        logger.info(f"FFmpeg process completed with return code: {process.returncode}")
+        if stderr:
+            logger.info(f"FFmpeg stderr output: {stderr[:500]}...")  # 只顯示前500字符
         
         if process.returncode == 0:
             if os.path.exists(output_path):

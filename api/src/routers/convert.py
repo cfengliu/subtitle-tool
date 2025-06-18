@@ -152,25 +152,121 @@ async def start_video_to_audio_conversion(
     
     # 在后台线程中监控进程
     def monitor_process():
+        import time
+        logger.info(f"MONITOR: Entering monitor_process function for task {task_id}")
         try:
-            process.join()  # 等待进程完成
+            logger.info(f"MONITOR: Monitor thread started for conversion task {task_id}")
+            logger.info(f"MONITOR: Process PID: {process.pid}, is_alive: {process.is_alive()}")
             
-            if not result_queue.empty():
-                result = result_queue.get()
+            # 簡化監控邏輯 - 直接使用 join 但加上超時
+            logger.info(f"Waiting for process {task_id} to complete...")
+            process.join(timeout=300)  # 最多等待5分鐘
+            
+            logger.info(f"Process join completed for task {task_id}")
+            logger.info(f"Process is_alive: {process.is_alive()}, exit code: {process.exitcode}")
+            
+            # 如果進程還活著，說明超時了
+            if process.is_alive():
+                logger.error(f"Process {task_id} timed out, terminating...")
+                process.terminate()
+                time.sleep(1)
+                if process.is_alive():
+                    process.kill()
+                task.status = "error"
+                convert_results[task_id] = {
+                    "status": "error",
+                    "error": "Process timed out"
+                }
+                return
+            
+            # 給時間讓結果進入隊列
+            logger.info(f"Waiting for result in queue for task {task_id}...")
+            time.sleep(1.0)
+            
+            try:
+                # 嘗試從隊列獲取結果
+                result = result_queue.get(timeout=5.0)
+                logger.info(f"Got result from queue for task {task_id}: status={result.get('status')}")
+                
                 if result.get("status") == "completed":
-                    convert_results[task_id] = result
-                    task.status = "completed"
+                    # 讀取音頻文件內容
+                    output_path = result.get("output_path")
+                    if output_path and os.path.exists(output_path):
+                        try:
+                            with open(output_path, "rb") as f:
+                                audio_data = f.read()
+                            
+                            logger.info(f"Audio data read successfully, size: {len(audio_data)} bytes")
+                            
+                            # 將音頻數據添加到結果中
+                            result["audio_data"] = audio_data
+                            
+                            # 清理臨時輸出文件
+                            os.remove(output_path)
+                            logger.info(f"Temporary output file deleted: {output_path}")
+                            
+                        except Exception as file_error:
+                            logger.error(f"Failed to read or delete output file {output_path}: {file_error}")
+                            result = {
+                                "status": "error",
+                                "error": f"Failed to read output file: {file_error}"
+                            }
+                    else:
+                        logger.error(f"Output file not found: {output_path}")
+                        result = {
+                            "status": "error", 
+                            "error": "Output file not found"
+                        }
+                    
+                    if result.get("status") == "completed":
+                        convert_results[task_id] = result
+                        task.status = "completed"
+                        logger.info(f"Task {task_id} completed successfully")
+                    else:
+                        task.status = "error"
+                        convert_results[task_id] = result
+                        logger.error(f"Task {task_id} failed during file reading")
                 else:
                     task.status = "error"
                     convert_results[task_id] = result
-            else:
-                # 进程被终止
-                task.status = "cancelled"
+                    logger.error(f"Task {task_id} failed: {result.get('error', 'Unknown error')}")
+                
+                # 清理隊列資源
+                try:
+                    result_queue.close()
+                    result_queue.cancel_join_thread()
+                    logger.info(f"Result queue cleaned up for task {task_id}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup result queue for task {task_id}: {cleanup_error}")
+                    
+            except Exception as queue_error:
+                logger.warning(f"Failed to get result from queue for task {task_id}: {queue_error}")
+                logger.warning(f"Process exit code: {process.exitcode}")
+                
+                # 即使沒有從隊列獲取到結果，也要設置狀態
+                task.status = "error" if process.exitcode == 0 else "cancelled"
+                convert_results[task_id] = {
+                    "status": "error",
+                    "error": f"Process completed with exit code {process.exitcode}, but failed to get result from queue: {queue_error}"
+                }
                 
         except Exception as e:
-            logger.error(f"Error monitoring process for conversion task {task_id}: {e}")
+            logger.error(f"Error in monitor thread for task {task_id}: {e}", exc_info=True)
             task.status = "error"
+            convert_results[task_id] = {
+                "status": "error", 
+                "error": f"Monitor thread error: {str(e)}"
+            }
         finally:
+            # 清理隊列資源（如果還沒清理的話）
+            try:
+                if 'result_queue' in locals():
+                    result_queue.close()
+                    result_queue.cancel_join_thread()
+                    logger.info(f"Final result queue cleanup for task {task_id}")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup result queue in finally block for task {task_id}: {cleanup_error}")
+            
             # 释放一个并发名额
             convert_semaphore.release()
             # 清理暂存文件
@@ -182,7 +278,9 @@ async def start_video_to_audio_conversion(
                 del active_convert_tasks[task_id]
     
     monitor_thread = threading.Thread(target=monitor_process)
+    monitor_thread.daemon = True  # 設置為守護線程
     monitor_thread.start()
+    logger.info(f"Monitor thread started with ID: {monitor_thread.ident} for task {task_id}")
     
     return {
         "task_id": task_id,
@@ -351,10 +449,16 @@ async def get_conversion_status(task_id: str):
 )
 async def get_conversion_result(task_id: str):
     """获取转换任务结果"""
+    logger.info(f"Getting result for task {task_id}")
+    logger.info(f"Active tasks: {list(active_convert_tasks.keys())}")
+    logger.info(f"Completed results: {list(convert_results.keys())}")
+    
     # 检查活跃任务
     if task_id in active_convert_tasks:
         task_info = active_convert_tasks[task_id]
         task = task_info["task"]
+        
+        logger.info(f"Task {task_id} found in active tasks, status: {task.status}")
         
         if task.is_cancelled():
             raise HTTPException(status_code=410, detail="任务已被取消")
