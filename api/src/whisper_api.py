@@ -7,6 +7,7 @@ import os
 import logging
 import uuid
 import threading
+from threading import Semaphore
 import time
 from multiprocessing import Process, Queue, Manager
 import opencc  # 用於簡繁轉換
@@ -20,6 +21,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 compute_type = "float16" if device == "cuda" else "int8"
 logger.info(f"使用設備: {device}, 計算類型: {compute_type}")
 logger.info("API server started on port http://localhost:8010")
+
+# 并发控制配置 — 使用信号量限制同时进行的转录任务数量
+MAX_CONCURRENT_TASKS = int(os.getenv("MAX_CONCURRENT_TASKS", "3"))  # 可通过环境变量修改
+concurrent_semaphore = Semaphore(MAX_CONCURRENT_TASKS)
 
 # 初始化 Whisper 模型
 model = WhisperModel("large-v3", device=device, compute_type=compute_type)
@@ -211,6 +216,13 @@ async def start_transcribe_audio(
     language: Optional[str] = Form(None)
 ):
     """啟動轉錄任務，返回任務ID"""
+    # 并发控制：若已达到上限则立即拒绝请求
+    if not concurrent_semaphore.acquire(blocking=False):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent transcription requests. Please try again later."
+        )
+
     task_id = str(uuid.uuid4())
     logger.info(f"Starting transcription task {task_id} for file: {file.filename}")
     
@@ -271,6 +283,8 @@ async def start_transcribe_audio(
             logger.error(f"Error monitoring process for task {task_id}: {e}")
             task.status = "error"
         finally:
+            # 釋放一個並發名額
+            concurrent_semaphore.release()
             # 清理暫存文件
             if os.path.exists(temp_audio_path):
                 os.remove(temp_audio_path)
@@ -362,7 +376,7 @@ async def list_active_tasks():
         tasks.append({
             "task_id": task_id,
             "status": task.status,
-            "progress": task.progress,
+            "progress": active_tasks[task_id]["progress_dict"].get(task_id, 0),
             "filename": task_info["filename"]
         })
     return {"active_tasks": tasks}
