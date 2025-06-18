@@ -17,8 +17,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
           border: "1px solid hsl(214.3 31.8% 91.4%)",
           boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
         },
-        descriptionClassName: "text-gray-900 dark:text-gray-200 font-medium opacity-100",
-        className: "border-l-4 border-l-blue-500",
+        descriptionClassName:
+        "!text-gray-900 dark:!text-gray-200 !opacity-100 font-medium",
+      className: "border-l-4 border-l-blue-500",
       }}
       {...props}
     />
