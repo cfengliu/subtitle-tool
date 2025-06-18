@@ -210,7 +210,32 @@ def transcribe_worker(audio_path: str, language: Optional[str], result_queue: Qu
         error_result = {"error": "Transcription failed.", "status": "error"}
         result_queue.put(error_result)
 
-@app.post("/transcribe/")
+@app.post("/transcribe/", 
+    responses={
+        200: {
+            "description": "轉錄任務成功啟動",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "status": "started",
+                        "message": "轉錄任務已啟動"
+                    }
+                }
+            }
+        },
+        429: {
+            "description": "同時轉錄任務數量超過限制",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Too many concurrent transcription requests. Please try again later."
+                    }
+                }
+            }
+        }
+    }
+)
 async def start_transcribe_audio(
     file: UploadFile = File(...),
     language: Optional[str] = Form(None)
@@ -302,7 +327,32 @@ async def start_transcribe_audio(
         "message": "轉錄任務已啟動"
     }
 
-@app.post("/transcribe/{task_id}/cancel")
+@app.post("/transcribe/{task_id}/cancel",
+    responses={
+        200: {
+            "description": "任務取消成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "status": "cancelled",
+                        "message": "任務已被強制終止"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "任務不存在或已完成",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務不存在或已完成"
+                    }
+                }
+            }
+        }
+    }
+)
 async def cancel_transcribe_task(task_id: str):
     """強制取消指定的轉錄任務"""
     if task_id not in active_tasks:
@@ -320,7 +370,33 @@ async def cancel_transcribe_task(task_id: str):
         "message": "任務已被強制終止"
     }
 
-@app.get("/transcribe/{task_id}/status")
+@app.get("/transcribe/{task_id}/status",
+    responses={
+        200: {
+            "description": "成功獲取任務狀態",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "task_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "status": "running",
+                        "progress": 45,
+                        "filename": "audio.mp3"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "任務不存在",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務不存在"
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_task_status(task_id: str):
     """獲取任務狀態"""
     # 檢查活躍任務
@@ -346,7 +422,63 @@ async def get_task_status(task_id: str):
     
     raise HTTPException(status_code=404, detail="任務不存在")
 
-@app.get("/transcribe/{task_id}/result")
+@app.get("/transcribe/{task_id}/result",
+    responses={
+        200: {
+            "description": "成功獲取任務結果",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "srt": "1\n00:00:00,000 --> 00:00:05,000\n你好，這是測試文字。\n\n",
+                        "txt": "你好，這是測試文字。",
+                        "detected_language": "zh",
+                        "status": "completed"
+                    }
+                }
+            }
+        },
+        202: {
+            "description": "任務仍在進行中",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務仍在進行中"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "任務不存在",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務不存在"
+                    }
+                }
+            }
+        },
+        410: {
+            "description": "任務已被取消",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務已被取消"
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "任務執行失敗",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "任務執行失敗"
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_task_result(task_id: str):
     """獲取任務結果"""
     if task_id not in task_results:
