@@ -39,6 +39,12 @@ def run_model_tests():
     return run_pytest_command(["tests/test_models.py"])
 
 
+def run_convert_tests():
+    """运行转换功能测试"""
+    print("🎬 运行视频转换测试...")
+    return run_pytest_command(["tests/test_convert.py"])
+
+
 def run_specific_test(test_path):
     """运行特定测试"""
     print(f"🎯 运行特定测试: {test_path}")
@@ -78,6 +84,7 @@ def show_help():
     api, --api              运行API端点测试
     utils, --utils          运行工具函数测试
     models, --models        运行模型类测试
+    convert, --convert      运行视频转换测试
     help, -h, --help       显示此帮助信息
     
     <test_path>             运行特定测试文件或测试方法
@@ -108,6 +115,8 @@ def main():
             success = run_utils_tests()
         elif arg in ['models', '--models']:
             success = run_model_tests()
+        elif arg in ['convert', '--convert']:
+            success = run_convert_tests()
         elif arg in ['help', '-h', '--help']:
             show_help()
             return

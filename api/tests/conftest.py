@@ -12,7 +12,8 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.whisper_api import app, TranscriptionTask
+from src.whisper_api import app
+from src.routers.transcribe import TranscriptionTask
 
 
 @pytest.fixture
@@ -77,4 +78,59 @@ def mock_active_task_data(sample_task_id, mock_transcription_task):
         "process": Mock(),
         "result_queue": Mock(),
         "progress_dict": {sample_task_id: 50}
+    }
+
+
+@pytest.fixture
+def sample_video_file():
+    """生成示例视频文件"""
+    video_content = b"fake video content for testing"
+    return {
+        "file": ("test_video.mp4", BytesIO(video_content), "video/mp4")
+    }
+
+
+@pytest.fixture
+def mock_conversion_task():
+    """模拟转换任务对象"""
+    from src.routers.convert import ConversionTask
+    task_id = str(uuid.uuid4())
+    task = ConversionTask(task_id)
+    return task
+
+
+@pytest.fixture
+def mock_active_convert_task_data(sample_task_id, mock_conversion_task):
+    """模拟活跃转换任务数据"""
+    return {
+        "task": mock_conversion_task,
+        "temp_file": "/tmp/test_video.mp4",
+        "filename": "test_video.mp4",
+        "format": "mp3",
+        "quality": "medium",
+        "process": Mock(),
+        "result_queue": Mock(),
+        "progress_dict": {sample_task_id: 75}
+    }
+
+
+@pytest.fixture
+def sample_conversion_result():
+    """示例转换结果"""
+    return {
+        "audio_data": b"fake converted audio data",
+        "format": "mp3",
+        "quality": "medium",
+        "file_size": 1024,
+        "message": "Successfully converted to MP3",
+        "status": "completed"
+    }
+
+
+@pytest.fixture
+def sample_conversion_error():
+    """示例转换错误结果"""
+    return {
+        "error": "转换失败: FFmpeg error occurred",
+        "status": "error"
     } 
