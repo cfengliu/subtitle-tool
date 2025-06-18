@@ -3,3 +3,4 @@ fastapi
 python-multipart
 uvicorn 
 torch>=2.5.1
+opencc

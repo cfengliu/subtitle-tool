@@ -101,7 +101,7 @@ export default function AudioTranscriptionPage() {
     { code: "tr", name: "Türkçe" },
   ]
 
-  // 获取活跃任务列表
+  // 獲取活躍任務列表
   const fetchActiveTasks = useCallback(async () => {
     try {
       const response = await fetch("/api/transcribe/tasks")
@@ -114,7 +114,7 @@ export default function AudioTranscriptionPage() {
     }
   }, [])
 
-  // 轮询任务状态
+  // 輪詢任務狀態
   useEffect(() => {
     if (currentTaskId) {
       const pollStatus = async () => {
@@ -125,20 +125,20 @@ export default function AudioTranscriptionPage() {
             setTaskProgress(status.progress)
             
             if (status.status === "completed") {
-              // 获取结果
+              // 獲取結果
               const resultResponse = await fetch(`/api/transcribe/${currentTaskId}/result`)
               if (resultResponse.ok) {
                 const resultData = await resultResponse.json()
                 setResult(resultData)
                 setIsLoading(false)
                 setCurrentTaskId(null)
-                fetchActiveTasks() // 刷新任务列表
+                fetchActiveTasks() // 刷新任務列表
               }
             } else if (status.status === "error" || status.status === "cancelled") {
-              setError(status.error_message || `任务${status.status === "error" ? "失败" : "已取消"}`)
+              setError(status.error_message || `任務${status.status === "error" ? "失敗" : "已取消"}`)
               setIsLoading(false)
               setCurrentTaskId(null)
-              fetchActiveTasks() // 刷新任务列表
+              fetchActiveTasks() // 刷新任務列表
             }
           }
         } catch (error) {
@@ -146,19 +146,19 @@ export default function AudioTranscriptionPage() {
         }
       }
 
-      const interval = setInterval(pollStatus, 1000) // 每秒轮询一次
+      const interval = setInterval(pollStatus, 1000) // 每秒輪詢一次
       return () => clearInterval(interval)
     }
   }, [currentTaskId, fetchActiveTasks])
 
-  // 定期刷新活跃任务列表
+  // 定期刷新活躍任務列表
   useEffect(() => {
     fetchActiveTasks()
     const interval = setInterval(fetchActiveTasks, 5000) // 每5秒刷新一次
     return () => clearInterval(interval)
   }, [fetchActiveTasks])
 
-  // 清理音频URL以防止内存泄漏
+  // 清理音檔URL以防止記憶體洩漏
   useEffect(() => {
     return () => {
       if (audioUrl) {
@@ -185,7 +185,7 @@ export default function AudioTranscriptionPage() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0]
       if (droppedFile.type.startsWith("audio/")) {
-        // 清理之前的音频URL
+        // 清理之前的音檔URL
         if (audioUrl) {
           URL.revokeObjectURL(audioUrl)
         }
@@ -195,7 +195,7 @@ export default function AudioTranscriptionPage() {
         const url = URL.createObjectURL(droppedFile)
         setAudioUrl(url)
       } else {
-        setError("请选择音频文件")
+        setError("請選擇音檔文件")
       }
     }
   }, [audioUrl])
@@ -204,7 +204,7 @@ export default function AudioTranscriptionPage() {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0]
       if (selectedFile.type.startsWith("audio/")) {
-        // 清理之前的音频URL
+        // 清理之前的音檔URL
         if (audioUrl) {
           URL.revokeObjectURL(audioUrl)
         }
@@ -214,7 +214,7 @@ export default function AudioTranscriptionPage() {
         const url = URL.createObjectURL(selectedFile)
         setAudioUrl(url)
       } else {
-        setError("请选择音频文件")
+        setError("請選擇音檔文件")
       }
     }
   }
@@ -223,7 +223,7 @@ export default function AudioTranscriptionPage() {
     e.preventDefault()
 
     if (!file) {
-      setError("请选择文件")
+      setError("請選擇文件")
       return
     }
 
@@ -248,22 +248,22 @@ export default function AudioTranscriptionPage() {
         if (response.status === 422) {
           const errorData: HTTPValidationError = await response.json()
           const errorMessages = errorData.detail.map((err) => err.msg).join(", ")
-          throw new Error(`验证错误: ${errorMessages}`)
+          throw new Error(`驗證錯誤: ${errorMessages}`)
         }
-        throw new Error(`HTTP错误! 状态: ${response.status}`)
+        throw new Error(`HTTP錯誤! 狀態: ${response.status}`)
       }
 
       const data = await response.json()
       if (data.task_id) {
         setCurrentTaskId(data.task_id)
-        fetchActiveTasks() // 刷新任务列表
+        fetchActiveTasks() // 刷新任務列表
       } else {
-        // 兼容旧版本直接返回结果的情况
+        // 兼容舊版本直接返回結果的情況
         setResult(data)
         setIsLoading(false)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "转录过程中发生错误")
+      setError(err instanceof Error ? err.message : "轉錄過程中發生錯誤")
       setIsLoading(false)
     }
   }
@@ -278,7 +278,7 @@ export default function AudioTranscriptionPage() {
           setCurrentTaskId(null)
           setIsLoading(false)
         }
-        fetchActiveTasks() // 刷新任务列表
+        fetchActiveTasks() // 刷新任務列表
       }
     } catch (error) {
       console.error("Failed to cancel task:", error)
@@ -317,11 +317,11 @@ export default function AudioTranscriptionPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "running":
-        return <Badge variant="default" className="bg-blue-500"><Loader2 className="w-3 h-3 mr-1 animate-spin" />进行中</Badge>
+        return <Badge variant="default" className="bg-blue-500"><Loader2 className="w-3 h-3 mr-1 animate-spin" />進行中</Badge>
       case "completed":
         return <Badge variant="default" className="bg-green-500"><CheckCircle className="w-3 h-3 mr-1" />已完成</Badge>
       case "error":
-        return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" />失败</Badge>
+        return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" />失敗</Badge>
       case "cancelled":
         return <Badge variant="secondary"><X className="w-3 h-3 mr-1" />已取消</Badge>
       default:
@@ -332,14 +332,14 @@ export default function AudioTranscriptionPage() {
   return (
     <div className="container mx-auto py-8 px-4 max-w-7xl">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2">音频转录工具</h1>
-        <p className="text-muted-foreground">上传音频文件获取准确的转录结果，支持实时进度监控</p>
+        <h1 className="text-3xl font-bold mb-2">音檔轉錄工具</h1>
+        <p className="text-muted-foreground">上傳音檔文件獲取準確的轉錄結果，支持實時進度監控</p>
       </div>
 
       <Tabs defaultValue="transcribe" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="transcribe">转录文件</TabsTrigger>
-          <TabsTrigger value="tasks">任务管理</TabsTrigger>
+          <TabsTrigger value="transcribe">轉錄文件</TabsTrigger>
+          <TabsTrigger value="tasks">任務管理</TabsTrigger>
         </TabsList>
 
         <TabsContent value="transcribe" className="space-y-6">
@@ -349,9 +349,9 @@ export default function AudioTranscriptionPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Upload className="w-5 h-5" />
-                  上传音频文件
+                  上傳音檔文件
                 </CardTitle>
-                <CardDescription>选择或拖拽音频文件进行转录</CardDescription>
+                <CardDescription>選擇或拖拽音檔文件進行轉錄</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -369,8 +369,8 @@ export default function AudioTranscriptionPage() {
                       >
                         <FileAudio className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                         <div className="space-y-2">
-                          <span className="text-sm font-medium">点击上传或拖拽文件</span>
-                          <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音频格式</p>
+                          <span className="text-sm font-medium">點擊上傳或拖拽文件</span>
+                          <p className="text-xs text-muted-foreground">支持 MP3、WAV、M4A 等音檔格式</p>
                         </div>
                       </div>
                     </Label>
@@ -381,11 +381,11 @@ export default function AudioTranscriptionPage() {
                   <div className="space-y-2">
                     <Label htmlFor="language-select" className="flex items-center gap-2">
                       <Languages className="w-4 h-4" />
-                      选择语言
+                      選擇語言
                     </Label>
                     <Select value={language} onValueChange={setLanguage}>
                       <SelectTrigger>
-                        <SelectValue placeholder="选择语言或自动检测" />
+                        <SelectValue placeholder="選擇語言或自動檢測" />
                       </SelectTrigger>
                       <SelectContent>
                         {commonLanguages.map((lang) => (
@@ -396,7 +396,7 @@ export default function AudioTranscriptionPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      选择音频的语言，或留空让系统自动检测
+                      選擇音檔的語言，或留空讓系統自動檢測
                     </p>
                   </div>
 
@@ -414,7 +414,7 @@ export default function AudioTranscriptionPage() {
                         <div className="p-4 bg-muted rounded-lg">
                           <div className="flex items-center gap-2 mb-2">
                             <Volume2 className="w-4 h-4" />
-                            <span className="text-sm font-medium">音频预览</span>
+                            <span className="text-sm font-medium">音檔預覽</span>
                           </div>
                           <audio
                             key={audioUrl}
@@ -423,7 +423,7 @@ export default function AudioTranscriptionPage() {
                             preload="metadata"
                           >
                             <source src={audioUrl} type={file?.type} />
-                            您的浏览器不支持音频播放器。
+                            您的瀏覽器不支持音檔播放器。
                           </audio>
                         </div>
                       )}
@@ -442,12 +442,12 @@ export default function AudioTranscriptionPage() {
                       {isLoading ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          转录中...
+                          轉錄中...
                         </>
                       ) : (
                         <>
                           <Upload className="w-4 h-4 mr-2" />
-                          开始转录
+                          開始轉錄
                         </>
                       )}
                     </Button>
@@ -471,11 +471,11 @@ export default function AudioTranscriptionPage() {
                   {isLoading && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
-                        <span>转录进度</span>
+                        <span>轉錄進度</span>
                         <span>{taskProgress}%</span>
                       </div>
                       <Progress value={taskProgress} className="w-full" />
-                      <p className="text-sm text-center text-muted-foreground">正在处理您的音频文件...</p>
+                      <p className="text-sm text-center text-muted-foreground">正在處理您的音檔文件...</p>
                     </div>
                   )}
                 </form>
@@ -487,9 +487,9 @@ export default function AudioTranscriptionPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5" />
-                  转录结果
+                  轉錄結果
                 </CardTitle>
-                <CardDescription>转录的文本将在这里显示</CardDescription>
+                <CardDescription>轉錄的文本將在這裡顯示</CardDescription>
               </CardHeader>
               <CardContent>
                 {result ? (
@@ -498,7 +498,7 @@ export default function AudioTranscriptionPage() {
                     {result.detected_language && (
                       <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
                         <Languages className="w-4 h-4" />
-                        <span className="text-sm font-medium">检测语言:</span>
+                        <span className="text-sm font-medium">檢測語言:</span>
                         <span className="text-sm text-muted-foreground">
                           {commonLanguages.find(lang => lang.code === result.detected_language)?.name || 
                            result.detected_language}
@@ -510,7 +510,7 @@ export default function AudioTranscriptionPage() {
                       <div className="p-4 bg-muted rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
                           <Volume2 className="w-4 h-4" />
-                          <span className="text-sm font-medium">原始音频</span>
+                          <span className="text-sm font-medium">原始音檔</span>
                         </div>
                         <audio
                           key={audioUrl}
@@ -519,7 +519,7 @@ export default function AudioTranscriptionPage() {
                           preload="metadata"
                         >
                           <source src={audioUrl} type={file?.type} />
-                          您的浏览器不支持音频播放器。
+                          您的瀏覽器不支持音檔播放器。
                         </audio>
                       </div>
                     )}
@@ -534,7 +534,7 @@ export default function AudioTranscriptionPage() {
                           }`}
                       >
                         <FileText className="w-4 h-4" />
-                        纯文本
+                        純文本
                       </button>
                       <button
                         onClick={() => setActiveTab('srt')}
@@ -551,13 +551,19 @@ export default function AudioTranscriptionPage() {
                     {/* Content Display */}
                     <div className="p-4 bg-muted rounded-lg">
                       <Label className="text-sm font-medium mb-2 block">
-                        {activeTab === 'txt' ? '转录文本：' : 'SRT字幕：'}
+                        {activeTab === 'txt' ? '轉錄文本：' : 'SRT字幕：'}
                       </Label>
                       <Textarea
                         value={activeTab === 'txt' ? result.txt || '' : result.srt || ''}
-                        readOnly
+                        onChange={(e) => {
+                          if (activeTab === 'txt') {
+                            setResult(prev => prev ? { ...prev, txt: e.target.value } : null)
+                          } else {
+                            setResult(prev => prev ? { ...prev, srt: e.target.value } : null)
+                          }
+                        }}
                         className="min-h-[300px] resize-none font-mono text-sm"
-                        placeholder={activeTab === 'txt' ? '转录文本将在这里显示...' : 'SRT字幕将在这里显示...'}
+                        placeholder={activeTab === 'txt' ? '轉錄文本將在這裡顯示...' : 'SRT字幕將在這裡顯示...'}
                       />
                     </div>
 
@@ -571,7 +577,7 @@ export default function AudioTranscriptionPage() {
                         className="flex-1"
                       >
                         <Copy className="w-4 h-4 mr-2" />
-                        复制到剪贴板
+                        複製到剪貼板
                       </Button>
                       <Button
                         onClick={() => {
@@ -582,14 +588,14 @@ export default function AudioTranscriptionPage() {
                         className="flex-1"
                       >
                         <Download className="w-4 h-4 mr-2" />
-                        下载文件
+                        下載文件
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <FileAudio className="w-12 h-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">上传音频文件以查看转录结果</p>
+                    <p className="text-muted-foreground">上傳音檔文件以查看轉錄結果</p>
                   </div>
                 )}
               </CardContent>
@@ -604,9 +610,9 @@ export default function AudioTranscriptionPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <Clock className="w-5 h-5" />
-                    活跃任务
+                    活躍任務
                   </CardTitle>
-                  <CardDescription>管理正在进行的转录任务</CardDescription>
+                  <CardDescription>管理正在進行的轉錄任務</CardDescription>
                 </div>
                 <Button onClick={fetchActiveTasks} variant="outline" size="sm">
                   <RefreshCw className="w-4 h-4 mr-2" />
@@ -643,8 +649,8 @@ export default function AudioTranscriptionPage() {
                       
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span>语言: {task.language === "auto" ? "自动检测" : task.language}</span>
-                          <span>进度: {task.progress}%</span>
+                          <span>語言: {task.language === "auto" ? "自動檢測" : task.language}</span>
+                          <span>進度: {task.progress}%</span>
                         </div>
                         {task.status === "running" && (
                           <Progress value={task.progress} className="w-full" />
@@ -652,7 +658,7 @@ export default function AudioTranscriptionPage() {
                       </div>
                       
                       <div className="mt-2 text-xs text-muted-foreground">
-                        任务ID: {task.task_id}
+                        任務ID: {task.task_id}
                       </div>
                     </div>
                   ))}
@@ -660,7 +666,7 @@ export default function AudioTranscriptionPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <Clock className="w-12 h-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">当前没有活跃的转录任务</p>
+                  <p className="text-muted-foreground">當前沒有活躍的轉錄任務</p>
                 </div>
               )}
             </CardContent>

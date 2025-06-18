@@ -9,6 +9,7 @@ import uuid
 import threading
 import time
 from multiprocessing import Process, Queue, Manager
+import opencc  # 用於簡繁轉換
 
 # 設置日誌配置
 logging.basicConfig(level=logging.INFO)  # 設置日誌級別為 INFO
@@ -60,6 +61,16 @@ def format_timestamp(seconds: float) -> str:
     secs = int(seconds % 60)
     milliseconds = int((seconds - int(seconds)) * 1000)
     return f"{hours:02}:{minutes:02}:{secs:02},{milliseconds:03}"
+
+def convert_to_traditional_chinese(text: str) -> str:
+    """將簡體中文轉換為繁體中文"""
+    try:
+        # 初始化 OpenCC 轉換器 (簡體轉繁體)
+        converter = opencc.OpenCC('s2t')
+        return converter.convert(text)
+    except Exception as e:
+        logger.warning(f"Failed to convert to traditional Chinese: {e}")
+        return text
 
 def add_chinese_punctuation(text: str, language: str) -> str:
     """為中文文本添加基本標點符號"""
@@ -151,20 +162,31 @@ def transcribe_worker(audio_path: str, language: Optional[str], result_queue: Qu
             start_ts = format_timestamp(segment.start)
             end_ts = format_timestamp(segment.end)
             
-            # 處理每個片段的文本，添加標點符號
+            # 處理每個片段的文本，添加標點符號並轉換為繁體中文
             segment_text = segment.text.strip()
             if detected_language == 'zh':
                 segment_text = add_chinese_punctuation(segment_text, detected_language)
+                # 轉換為繁體中文
+                segment_text = convert_to_traditional_chinese(segment_text)
             
             srt_output += f"{i}\n{start_ts} --> {end_ts}\n{segment_text}\n\n"
-            txt_output += f"{segment_text} "
+            
+            # 根據語言決定是否需要空格分隔
+            # 中文、日文、韓文、泰文不需要空格，其他語言需要空格
+            no_space_languages = ['zh', 'ja', 'ko', 'th', 'chinese', 'japanese', 'korean', 'thai']
+            
+            if detected_language in no_space_languages:
+                # 中文等語言直接連接，不加空格
+                txt_output += segment_text
+            else:
+                # 其他語言需要空格分隔
+                if txt_output:  # 如果不是第一個片段，前面加空格
+                    txt_output += f" {segment_text}"
+                else:
+                    txt_output = segment_text
         
         # 整理純文本格式（去除多餘空格）
         txt_output = txt_output.strip()
-        
-        # 對整個文本再次處理標點符號
-        if detected_language == 'zh':
-            txt_output = add_chinese_punctuation(txt_output, detected_language)
         
         # 設置最終進度
         progress_dict[task_id] = 100
