@@ -62,10 +62,6 @@ export default function Navigation() {
             </select>
           </div>
         </div>
-        
-        <div className="pb-4 text-center text-sm text-muted-foreground">
-          {navItems.find(item => item.href === pathname)?.description || "音檔處理工具集"}
-        </div>
       </div>
     </nav>
   )
