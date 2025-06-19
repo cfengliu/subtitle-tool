@@ -11,6 +11,8 @@ from threading import Semaphore
 import time
 from ..workers.convert_worker import convert_worker
 from ..utils.ffmpeg_utils import get_supported_formats
+from urllib.parse import quote
+import re
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -200,6 +202,8 @@ async def start_video_to_audio_conversion(
                             
                             # 將音頻數據添加到結果中
                             result["audio_data"] = audio_data
+                            # 新增：將原始檔名存進結果
+                            result["filename"] = active_convert_tasks[task_id]["filename"]
                             
                             # 清理臨時輸出文件
                             os.remove(output_path)
@@ -482,14 +486,24 @@ async def get_conversion_result(task_id: str):
             
             mime_type = mime_types.get(format, "audio/mpeg")
             
-            # 设置文件名
-            filename = f"converted_audio.{format}"
-            
+            # 設置檔名，優先用 result["filename"]
+            filename = result.get("filename", f"converted_audio.{format}")
+            import os
+            base, ext = os.path.splitext(filename)
+            if not ext or ext[1:] != format:
+                filename = f"{base}.{format}"
+            # 前面加上 converted_
+            filename = f"converted_{filename}"
+            # 產生 ASCII-only 的 fallback filename
+            def ascii_filename(filename, fallback="file"):
+                return re.sub(r'[^A-Za-z0-9_.-]', '_', filename) or fallback
+            ascii_name = ascii_filename(filename)
+            quoted_filename = quote(filename)
             return Response(
                 content=audio_data,
                 media_type=mime_type,
                 headers={
-                    "Content-Disposition": f"attachment; filename={filename}",
+                    "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8''{quoted_filename}',
                     "Content-Length": str(len(audio_data))
                 }
             )
