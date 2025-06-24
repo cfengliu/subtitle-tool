@@ -25,8 +25,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       "Content-Disposition": response.headers.get("content-disposition") || "attachment"
     }
 
-    const arrayBuffer = await response.arrayBuffer()
-    return new Response(arrayBuffer, {
+    // 直接串流回傳，避免一次將整個檔案載入記憶體
+    if (!response.body) {
+      return new Response("File stream not available", { status: 500 })
+    }
+
+    return new Response(response.body, {
       status: 200,
       headers
     })
