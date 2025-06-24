@@ -68,6 +68,57 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     { value: 'low', label: '低品質', bitrate: '128kbps' }
   ]
 
+  // Chunk upload config
+  const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
+
+  /**
+   * 將檔案以分片方式上傳至後端。
+   * 上傳完最後一片後，後端會直接啟動轉檔任務並回傳 task_id。
+   */
+  const uploadFileInChunks = async (file: File): Promise<string> => {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    let taskId: string | null = null
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const start = chunkIndex * CHUNK_SIZE
+      const end = Math.min(file.size, start + CHUNK_SIZE)
+      const chunk = file.slice(start, end)
+
+      const formData = new FormData()
+      formData.append("chunk", chunk)
+      formData.append("chunk_index", String(chunkIndex))
+      formData.append("total_chunks", String(totalChunks))
+      formData.append("format", audioFormat)
+      formData.append("quality", audioQuality)
+      formData.append("filename", file.name)
+      if (taskId) {
+        formData.append("task_id", taskId)
+      }
+
+      const response = await fetch("/api/convert-video/chunk-upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || "分片上傳失敗")
+      }
+
+      if (!taskId && data.task_id) {
+        taskId = data.task_id as string
+      }
+
+      // 先將 0~100% 的 30% 分配給上傳進度，之後的 70% 交給轉換進度
+      setProgress(Math.round(((chunkIndex + 1) / totalChunks) * 30))
+    }
+
+    if (!taskId) throw new Error("task_id 不存在")
+
+    return taskId
+  }
+
   // 清理函數
   useEffect(() => {
     return () => {
@@ -148,7 +199,9 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
       setCurrentTask(data)
       
       if (data.progress !== undefined) {
-        setProgress(data.progress)
+        // 轉換進度映射到 30%~100% 之間
+        const mapped = 30 + Math.round((data.progress / 100) * 70)
+        setProgress(mapped)
       }
       
       if (data.status === 'completed') {
@@ -268,34 +321,19 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     setCurrentTask(null)
 
     try {
-      // 創建 FormData
-      const formData = new FormData()
-      formData.append('file', videoFile)
-      formData.append('format', audioFormat)
-      formData.append('quality', audioQuality)
+      // 使用分片上傳
+      const taskId = await uploadFileInChunks(videoFile)
 
-      // 上傳文件並開始轉換
-      const response = await fetch('/api/convert-video', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.detail || '上傳失敗')
-      }
-      
       setIsUploading(false)
-      setCurrentTask(data)
-      
+      setCurrentTask({ task_id: taskId, status: 'pending' })
+
       toast("上傳成功", {
         description: "文件已上傳，開始轉換...",
       })
-      
+
       // 開始輪詢任務狀態
       pollIntervalRef.current = setInterval(() => {
-        pollTaskStatus(data.task_id)
+        pollTaskStatus(taskId)
       }, 1000) // 每秒輪詢一次
       
     } catch (err) {

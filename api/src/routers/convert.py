@@ -1,7 +1,7 @@
 from multiprocessing import Process, Queue, Manager
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import Response, FileResponse
-from typing import Optional, Dict
+from typing import Optional, Dict, Set
 import tempfile
 import os
 import logging
@@ -26,6 +26,17 @@ convert_semaphore = Semaphore(MAX_CONCURRENT_CONVERT_TASKS)
 # 任务管理
 active_convert_tasks: Dict[str, Dict] = {}  # 存储活跃的转换任务
 convert_results: Dict[str, Dict] = {}  # 存储完成的任务结果
+
+# ------------------------------
+# Chunked upload (multipart) support
+# ------------------------------
+
+# 臨時儲存分片的目錄
+chunk_upload_base_dir = pathlib.Path(tempfile.gettempdir()) / "chunk_uploads"
+chunk_upload_base_dir.mkdir(parents=True, exist_ok=True)
+
+# 紀錄每個上傳任務的分片狀態
+chunk_upload_tasks: Dict[str, Dict] = {}
 
 router = APIRouter(prefix="/convert", tags=["convert"])
 
@@ -254,17 +265,26 @@ async def start_video_to_audio_conversion(
                 "error": f"Monitor thread error: {str(e)}"
             }
         finally:
-            # Skip deleting the output file here; cleanup can be done by the download endpoint or a scheduled job
-            
-            # 释放一个并发名额
+            # 從活躍任務移除，避免 /result 端點誤判為進行中
+            if task_id in active_convert_tasks:
+                del active_convert_tasks[task_id]
+
+            # 若有臨時合併檔案，轉檔成功後可由下載端點清理；失敗則嘗試刪除
+            try:
+                task_info = chunk_upload_tasks.get(task_id)
+                if task_info:
+                    combined_path = pathlib.Path(task_info["dir"]) / f"combined_{task_id}{pathlib.Path(task_info['filename']).suffix or '.mp4'}"
+                    if combined_path.exists() and task_id in convert_results and convert_results[task_id].get("status") != "completed":
+                        combined_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+            # 釋放信號量
             convert_semaphore.release()
             # 清理暂存文件
             if os.path.exists(temp_video_path):
                 os.remove(temp_video_path)
                 logger.info(f"Temporary video file deleted: {temp_video_path}")
-            # 从活跃任务中移除
-            if task_id in active_convert_tasks:
-                del active_convert_tasks[task_id]
     
     monitor_thread = threading.Thread(target=monitor_process)
     monitor_thread.daemon = True  # 設置為守護線程
@@ -545,4 +565,178 @@ async def download_converted_audio(task_id: str):
             "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8''{quoted_filename}'
         }
     )
+
+def _monitor_conversion_process(task_id: str):
+    """複用原先的 monitor 邏輯，抽出供分片上傳流程使用。"""
+    try:
+        task_info = active_convert_tasks[task_id]
+        task: ConversionTask = task_info["task"]
+        process: Process = task_info["process"]
+        result_queue: Queue = task_info["result_queue"]
+        progress_dict = task_info["progress_dict"]
+
+        logger.info(f"[CHUNK] Monitoring conversion process for task {task_id}, pid={process.pid}")
+
+        # 最多等待 5 分鐘完成轉檔
+        process.join(timeout=300)
+        if process.is_alive():
+            logger.error(f"[CHUNK] Process timeout for task {task_id}, terminating …")
+            process.terminate()
+            time.sleep(1)
+            if process.is_alive():
+                process.kill()
+            task.status = "error"
+            convert_results[task_id] = {"status": "error", "error": "Process timed out"}
+            return
+
+        # 讀取結果
+        try:
+            result = result_queue.get(timeout=5)
+        except Exception as queue_err:
+            logger.error(f"[CHUNK] Failed to get result for task {task_id}: {queue_err}")
+            task.status = "error"
+            convert_results[task_id] = {"status": "error", "error": str(queue_err)}
+            return
+
+        if result.get("status") == "completed":
+            try:
+                temp_storage_dir = pathlib.Path(tempfile.gettempdir()) / "converted_audios"
+                temp_storage_dir.mkdir(parents=True, exist_ok=True)
+
+                dest_suffix = result.get("output_path").split(".")[-1]
+                dest_path = temp_storage_dir / f"{task_id}.{dest_suffix}"
+                shutil.move(result.get("output_path"), dest_path)
+                result["download_path"] = str(dest_path)
+                result["filename"] = task_info["filename"]
+            except Exception as file_err:
+                logger.error(f"[CHUNK] Failed to move output file: {file_err}")
+                task.status = "error"
+                convert_results[task_id] = {"status": "error", "error": str(file_err)}
+                return
+
+            convert_results[task_id] = result
+            task.status = "completed"
+            logger.info(f"[CHUNK] Task {task_id} completed successfully")
+        else:
+            task.status = "error"
+            convert_results[task_id] = result
+            logger.error(f"[CHUNK] Task {task_id} failed: {result.get('error')}")
+
+        # 清理 Queue
+        try:
+            result_queue.close()
+            result_queue.cancel_join_thread()
+        except Exception:
+            pass
+    finally:
+        # 從活躍任務移除，避免 /result 端點誤判為進行中
+        if task_id in active_convert_tasks:
+            del active_convert_tasks[task_id]
+
+        # 若有臨時合併檔案，轉檔成功後可由下載端點清理；失敗則嘗試刪除
+        try:
+            task_info = chunk_upload_tasks.get(task_id)
+            if task_info:
+                combined_path = pathlib.Path(task_info["dir"]) / f"combined_{task_id}{pathlib.Path(task_info['filename']).suffix or '.mp4'}"
+                if combined_path.exists() and task_id in convert_results and convert_results[task_id].get("status") != "completed":
+                    combined_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        # 釋放信號量
+        convert_semaphore.release()
+
+@router.post("/upload_chunk")
+async def upload_video_chunk(
+    chunk: UploadFile = File(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    format: str = Form("mp3"),
+    quality: str = Form("medium"),
+    filename: str = Form("video.mp4"),
+    task_id: Optional[str] = Form(None)
+):
+    """接收分片並在最後一片整合後啟動轉檔流程。"""
+    # 初始化任務
+    if task_id is None:
+        task_id = str(uuid.uuid4())
+        task_dir = chunk_upload_base_dir / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        chunk_upload_tasks[task_id] = {
+            "dir": str(task_dir),
+            "total_chunks": total_chunks,
+            "received": set(),  # type: Set[int]
+            "format": format,
+            "quality": quality,
+            "filename": filename,
+        }
+    else:
+        if task_id not in chunk_upload_tasks:
+            raise HTTPException(status_code=400, detail="Invalid task_id")
+        task_dir = pathlib.Path(chunk_upload_tasks[task_id]["dir"])
+
+    # 儲存分片到臨時檔
+    chunk_path = task_dir / f"{chunk_index}.part"
+    with open(chunk_path, "wb") as f:
+        f.write(await chunk.read())
+
+    chunk_upload_tasks[task_id]["received"].add(chunk_index)
+
+    # 若尚未收到全部分片
+    if len(chunk_upload_tasks[task_id]["received"]) < total_chunks:
+        return {
+            "task_id": task_id,
+            "status": "uploading",
+            "received_chunks": len(chunk_upload_tasks[task_id]["received"]),
+            "total_chunks": total_chunks,
+        }
+
+    # 確保只有在最後一片時才往下
+    logger.info(f"[CHUNK] All chunks received for task {task_id}, assembling …")
+
+    # 將分片合併
+    combined_path = task_dir / f"combined_{task_id}{pathlib.Path(filename).suffix or '.mp4'}"
+    with open(combined_path, "wb") as outfile:
+        for i in range(total_chunks):
+            part_path = task_dir / f"{i}.part"
+            with open(part_path, "rb") as infile:
+                shutil.copyfileobj(infile, outfile)
+
+    # 取得執行資格
+    if not convert_semaphore.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Too many concurrent conversion requests. Please try again later.")
+
+    # 建立轉檔任務
+    conv_task = ConversionTask(task_id)
+    result_queue = Queue()
+    manager = Manager()
+    progress_dict = manager.dict()
+    progress_dict[task_id] = 0
+
+    process = Process(
+        target=convert_worker,
+        args=(str(combined_path), format, quality, result_queue, progress_dict, task_id),
+    )
+    process.start()
+    conv_task.process = process
+
+    active_convert_tasks[task_id] = {
+        "task": conv_task,
+        "temp_file": str(combined_path),
+        "filename": filename,
+        "format": format,
+        "quality": quality,
+        "process": process,
+        "result_queue": result_queue,
+        "progress_dict": progress_dict,
+    }
+
+    # 啟動監控執行緒
+    threading.Thread(target=_monitor_conversion_process, args=(task_id,), daemon=True).start()
+
+    return {
+        "task_id": task_id,
+        "status": "started",
+        "message": "File uploaded & conversion started"
+    }
 
