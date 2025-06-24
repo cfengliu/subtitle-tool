@@ -127,33 +127,54 @@ async def start_transcribe_audio(
     
     # 在后台线程中监控进程
     def monitor_process():
+        """Monitor the child process in a background thread and read the Queue early to avoid deadlock when sending large results."""
         try:
-            process.join()  # 等待进程完成
-            
-            if not result_queue.empty():
-                result = result_queue.get()
+            result = None
+
+            # Wait for data to appear in the result_queue. The worker puts the
+            # result before exiting. If the payload is large (e.g. subtitles for
+            # a one-hour audio file) and the parent never consumes it, the child
+            # can block on Queue.put(), which in turn makes process.join()
+            # block forever, leaving the task stuck at 100% progress.
+            while True:
+                if not result_queue.empty():
+                    result = result_queue.get()
+                    break
+
+                # If the child process has already terminated, break the loop.
+                if not process.is_alive():
+                    break
+
+                # Avoid busy-waiting.
+                time.sleep(0.5)
+
+            # Wait for the child process to fully terminate.
+            process.join()
+
+            if result:
                 if result.get("status") == "completed":
                     task_results[task_id] = result
                     task.status = "completed"
                 else:
                     task.status = "error"
             else:
-                # 进程被终止
-                task.status = "cancelled"
-                
+                # If there is no result and the child process has terminated,
+                # treat the task as cancelled or errored.
+                task.status = "cancelled" if task.is_cancelled() else "error"
         except Exception as e:
             logger.error(f"Error monitoring process for task {task_id}: {e}")
             task.status = "error"
         finally:
-            # 释放一个并发名额
+            # Release one concurrency slot.
             concurrent_semaphore.release()
-            # 清理暂存文件
+
+            # Clean up the temporary file.
             if os.path.exists(temp_audio_path):
                 os.remove(temp_audio_path)
                 logger.info("Temporary file deleted: %s", temp_audio_path)
-            # 从活跃任务中移除
-            if task_id in active_tasks:
-                del active_tasks[task_id]
+
+            # Remove the task from the active_tasks dict.
+            active_tasks.pop(task_id, None)
     
     monitor_thread = threading.Thread(target=monitor_process)
     monitor_thread.start()
