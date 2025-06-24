@@ -50,6 +50,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [currentTask, setCurrentTask] = useState<ConversionTask | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [downloadLink, setDownloadLink] = useState<string | null>(null)
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -158,6 +159,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     const url = URL.createObjectURL(file)
     setVideoUrl(url)
     setAudioUrl(null)
+    setDownloadLink(null)
   }, [videoUrl, audioUrl])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -267,8 +269,12 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
         throw new Error('下載連結缺失')
       }
 
+      // 儲存可下載的連結（使用 Proxy 路徑，避免 CORS）
+      const proxyDownloadUrl = `/api/convert-video/${taskId}/download`
+      setDownloadLink(proxyDownloadUrl)
+
       // Step 2: download the audio file via the Next.js API proxy route (avoid CORS)
-      const audioResponse = await fetch(`/api/convert-video/${taskId}/download`)
+      const audioResponse = await fetch(proxyDownloadUrl)
 
       if (!audioResponse.ok) {
         throw new Error('下載音檔失敗')
@@ -319,6 +325,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
     setError(null)
     setProgress(0)
     setCurrentTask(null)
+    setDownloadLink(null)
 
     try {
       // 使用分片上傳
@@ -419,6 +426,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
       URL.revokeObjectURL(audioUrl)
       setAudioUrl(null)
     }
+    setDownloadLink(null)
   }
 
   return (
@@ -673,7 +681,19 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <FileAudio className="w-12 h-12 text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">上傳影片文件以查看轉換結果</p>
+                {downloadLink ? (
+                  <>
+                    <p className="mb-4 text-muted-foreground">自動下載失敗，請手動下載：</p>
+                    <Button asChild>
+                      <a href={downloadLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                        <Download className="w-4 h-4" />
+                        手動下載音檔
+                      </a>
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">上傳影片文件以查看轉換結果</p>
+                )}
               </div>
             )}
           </CardContent>
