@@ -201,29 +201,48 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
   // 下載轉換結果
   const downloadResult = async (taskId: string) => {
     try {
+      // Step 1: request the JSON result which contains the download link
       const response = await fetch(`/api/convert-video/${taskId}/result`)
-      
+
       if (!response.ok) {
-        throw new Error('下載結果失敗')
+        throw new Error('取得結果資訊失敗')
       }
-      
-      const audioBlob = await response.blob()
-      const contentDisposition = response.headers.get('content-disposition')
-      let filename = 'converted_audio.mp3'
-      
+
+      const resultData = await response.json()
+
+      if (!resultData.download_url) {
+        throw new Error('下載連結缺失')
+      }
+
+      // Step 2: download the audio file via the Next.js API proxy route (avoid CORS)
+      const audioResponse = await fetch(`/api/convert-video/${taskId}/download`)
+
+      if (!audioResponse.ok) {
+        throw new Error('下載音檔失敗')
+      }
+
+      const audioBlob = await audioResponse.blob()
+
+      // Parse filename from Content-Disposition header
+      const contentDisposition = audioResponse.headers.get('content-disposition')
+      let filename = 'converted_audio'
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
         if (filenameMatch) {
           filename = filenameMatch[1].replace(/['"]/g, '')
         }
       }
-      
+      // Append extension from resultData.format if the filename has no extension
+      if (!/\.[A-Za-z0-9]+$/.test(filename) && resultData.format) {
+        filename += `.${resultData.format}`
+      }
+
       const audioFile = new File([audioBlob], filename, { type: audioBlob.type })
       setAudioFile(audioFile)
-      
+
       const audioURL = URL.createObjectURL(audioBlob)
       setAudioUrl(audioURL)
-      
+
       // 調用回調函數
       if (onAudioGenerated) {
         onAudioGenerated(audioFile)

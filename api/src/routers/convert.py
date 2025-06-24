@@ -1,6 +1,6 @@
 from multiprocessing import Process, Queue, Manager
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from typing import Optional, Dict
 import tempfile
 import os
@@ -13,6 +13,8 @@ from ..workers.convert_worker import convert_worker
 from ..utils.ffmpeg_utils import get_supported_formats
 from urllib.parse import quote
 import re
+import shutil
+import pathlib
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -191,41 +193,31 @@ async def start_video_to_audio_conversion(
                 logger.info(f"Got result from queue for task {task_id}: status={result.get('status')}")
                 
                 if result.get("status") == "completed":
-                    # 讀取音頻文件內容
-                    output_path = result.get("output_path")
-                    if output_path and os.path.exists(output_path):
-                        try:
-                            with open(output_path, "rb") as f:
-                                audio_data = f.read()
-                            
-                            logger.info(f"Audio data read successfully, size: {len(audio_data)} bytes")
-                            
-                            # 將音頻數據添加到結果中
-                            result["audio_data"] = audio_data
-                            # 新增：將原始檔名存進結果
-                            result["filename"] = active_convert_tasks[task_id]["filename"]
-                            
-                            # 清理臨時輸出文件
-                            os.remove(output_path)
-                            logger.info(f"Temporary output file deleted: {output_path}")
-                            
-                        except Exception as file_error:
-                            logger.error(f"Failed to read or delete output file {output_path}: {file_error}")
-                            result = {
-                                "status": "error",
-                                "error": f"Failed to read output file: {file_error}"
-                            }
-                    else:
-                        logger.error(f"Output file not found: {output_path}")
+                    # Move the output file to a persistent temporary directory
+                    try:
+                        temp_storage_dir = pathlib.Path(tempfile.gettempdir()) / "converted_audios"
+                        temp_storage_dir.mkdir(parents=True, exist_ok=True)
+
+                        # Destination filename: <task_id>.<ext>
+                        dest_suffix = result.get("output_path").split(".")[-1]
+                        dest_path = temp_storage_dir / f"{task_id}.{dest_suffix}"
+                        shutil.move(result.get("output_path"), dest_path)
+                        logger.info(f"Moved output file to persistent temp dir: {dest_path}")
+
+                        # Save the download path into the result structure
+                        result["download_path"] = str(dest_path)
+                        result["filename"] = active_convert_tasks[task_id]["filename"]
+                    except Exception as file_error:
+                        logger.error(f"Failed to move output file {result.get('output_path')}: {file_error}")
                         result = {
-                            "status": "error", 
-                            "error": "Output file not found"
+                            "status": "error",
+                            "error": f"Failed to store output file: {file_error}"
                         }
                     
                     if result.get("status") == "completed":
                         convert_results[task_id] = result
                         task.status = "completed"
-                        logger.info(f"Task {task_id} completed successfully")
+                        logger.info(f"Task {task_id} completed successfully, download_path set to {result.get('download_path')}")
                     else:
                         task.status = "error"
                         convert_results[task_id] = result
@@ -262,13 +254,7 @@ async def start_video_to_audio_conversion(
                 "error": f"Monitor thread error: {str(e)}"
             }
         finally:
-            # 清理可能遺留的輸出文件
-            try:
-                if 'output_path' in locals() and output_path and os.path.exists(output_path):
-                    os.remove(output_path)
-                    logger.info(f"Cleanup: Temporary output file deleted: {output_path}")
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to cleanup output file {output_path}: {cleanup_error}")
+            # Skip deleting the output file here; cleanup can be done by the download endpoint or a scheduled job
             
             # 释放一个并发名额
             convert_semaphore.release()
@@ -473,40 +459,16 @@ async def get_conversion_result(task_id: str):
         result = convert_results[task_id]
         
         if result.get("status") == "completed":
-            audio_data = result.get("audio_data")
             format = result.get("format", "mp3")
-            
-            # 设置正确的MIME类型
-            mime_types = {
-                "mp3": "audio/mpeg",
-                "wav": "audio/wav", 
-                "ogg": "audio/ogg",
-                "aac": "audio/aac"
+            download_url = f"/convert/{task_id}/download"
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "download_url": download_url,
+                "format": format,
+                "quality": result.get("quality"),
+                "file_size": result.get("file_size")
             }
-            
-            mime_type = mime_types.get(format, "audio/mpeg")
-            
-            # 設置檔名，優先用 result["filename"]
-            filename = result.get("filename", f"converted_audio.{format}")
-            import os
-            base, ext = os.path.splitext(filename)
-            if not ext or ext[1:] != format:
-                filename = f"{base}.{format}"
-            # 前面加上 converted_
-            filename = f"converted_{filename}"
-            # 產生 ASCII-only 的 fallback filename
-            def ascii_filename(filename, fallback="file"):
-                return re.sub(r'[^A-Za-z0-9_.-]', '_', filename) or fallback
-            ascii_name = ascii_filename(filename)
-            quoted_filename = quote(filename)
-            return Response(
-                content=audio_data,
-                media_type=mime_type,
-                headers={
-                    "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8''{quoted_filename}',
-                    "Content-Length": str(len(audio_data))
-                }
-            )
         else:
             error_message = result.get("error", "任务执行失败")
             raise HTTPException(status_code=500, detail=error_message)
@@ -541,4 +503,46 @@ async def get_supported_audio_formats():
         "default_format": "mp3",
         "quality_options": ["high", "medium", "low"]
     }
+
+# New endpoint: stream the converted audio file to the client
+@router.get("/{task_id}/download")
+async def download_converted_audio(task_id: str):
+    """Download the converted audio file once the task is completed"""
+    if task_id not in convert_results:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    result = convert_results[task_id]
+    if result.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="任务尚未完成")
+
+    file_path = result.get("download_path")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=410, detail="文件已被删除或不存在")
+
+    format = result.get("format", "mp3")
+    mime_types = {
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "ogg": "audio/ogg",
+        "aac": "audio/aac"
+    }
+    mime_type = mime_types.get(format, "audio/mpeg")
+
+    # Filename handling
+    filename = result.get("filename", f"converted_audio.{format}")
+    base, ext = os.path.splitext(filename)
+    if not ext or ext[1:] != format:
+        filename = f"{base}.{format}"
+    filename = f"converted_{filename}"
+    ascii_name = re.sub(r'[^A-Za-z0-9_.-]', '_', filename) or "file"
+    quoted_filename = quote(filename)
+
+    return FileResponse(
+        path=file_path,
+        media_type=mime_type,
+        filename=ascii_name,
+        headers={
+            "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8''{quoted_filename}'
+        }
+    )
 
