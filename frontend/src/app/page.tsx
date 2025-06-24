@@ -83,6 +83,9 @@ export default function AudioTranscriptionPage() {
   const [taskProgress, setTaskProgress] = useState<number>(0)
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
 
+  // 標記是否為影片轉音檔後再轉錄的流程
+  const [isVideoFlow, setIsVideoFlow] = useState<boolean>(false)
+
   // 常用語言列表
   const commonLanguages = [
     { code: "auto", name: "自動偵測" },
@@ -124,9 +127,12 @@ export default function AudioTranscriptionPage() {
           const response = await fetch(`/api/transcribe/${currentTaskId}/status`)
           if (response.ok) {
             const status: TaskStatus = await response.json()
-            setTaskProgress(status.progress)
+            const mappedProgress = isVideoFlow ? 50 + Math.round(status.progress / 2) : status.progress
+            setTaskProgress(mappedProgress)
             
             if (status.status === "completed") {
+              // 確保進度條結束於 100
+              setTaskProgress(100)
               // 獲取結果
               const resultResponse = await fetch(`/api/transcribe/${currentTaskId}/result`)
               if (resultResponse.ok) {
@@ -138,8 +144,11 @@ export default function AudioTranscriptionPage() {
                 toast("轉錄完成", {
                   description: "音檔已成功轉錄，您可以查看結果並進行編輯。",
                 })
+                setIsVideoFlow(false)
               }
             } else if (status.status === "error" || status.status === "cancelled") {
+              // 失敗或取消時重置 video flow 標記
+              setIsVideoFlow(false)
               const errorMsg = status.error_message || `任務${status.status === "error" ? "失敗" : "已取消"}`
               setError(errorMsg)
               setIsLoading(false)
@@ -158,7 +167,7 @@ export default function AudioTranscriptionPage() {
       const interval = setInterval(pollStatus, 1000) // 每秒輪詢一次
       return () => clearInterval(interval)
     }
-  }, [currentTaskId, fetchActiveTasks])
+  }, [currentTaskId, fetchActiveTasks, isVideoFlow])
 
   // 定期刷新活躍任務列表
   useEffect(() => {
@@ -193,18 +202,27 @@ export default function AudioTranscriptionPage() {
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0]
-      if (droppedFile.type.startsWith("audio/")) {
+      const isAudio = droppedFile.type.startsWith("audio/")
+      const isVideo = droppedFile.type.startsWith("video/")
+
+      if (isAudio || isVideo) {
         // 清理之前的音檔URL
         if (audioUrl) {
           URL.revokeObjectURL(audioUrl)
         }
-        
+
         setFile(droppedFile)
         setError(null)
-        const url = URL.createObjectURL(droppedFile)
-        setAudioUrl(url)
+
+        // 僅在音檔時產生預覽 URL，影片預覽將在後續支持
+        if (isAudio) {
+          const url = URL.createObjectURL(droppedFile)
+          setAudioUrl(url)
+        } else {
+          setAudioUrl(null)
+        }
       } else {
-        setError("請選擇音檔文件")
+        setError("請選擇音檔或影片文件")
       }
     }
   }, [audioUrl])
@@ -212,20 +230,145 @@ export default function AudioTranscriptionPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0]
-      if (selectedFile.type.startsWith("audio/")) {
+      const isAudio = selectedFile.type.startsWith("audio/")
+      const isVideo = selectedFile.type.startsWith("video/")
+
+      if (isAudio || isVideo) {
         // 清理之前的音檔URL
         if (audioUrl) {
           URL.revokeObjectURL(audioUrl)
         }
-        
+
         setFile(selectedFile)
         setError(null)
-        const url = URL.createObjectURL(selectedFile)
-        setAudioUrl(url)
+
+        if (isAudio) {
+          const url = URL.createObjectURL(selectedFile)
+          setAudioUrl(url)
+        } else {
+          setAudioUrl(null)
+        }
       } else {
-        setError("請選擇音檔文件")
+        setError("請選擇音檔或影片文件")
       }
     }
+  }
+
+  /* ---------------------------------------------
+   *  Video -> Audio conversion before transcription
+   * -------------------------------------------*/
+
+  // Chunk upload size (5MB)
+  const CHUNK_SIZE = 5 * 1024 * 1024
+
+  /**
+   * Upload video file in chunks to backend convert endpoint, returns task_id
+   */
+  const uploadFileInChunks = async (video: File): Promise<string> => {
+    const totalChunks = Math.ceil(video.size / CHUNK_SIZE)
+    let taskId: string | null = null
+
+    for (let index = 0; index < totalChunks; index++) {
+      const start = index * CHUNK_SIZE
+      const end = Math.min(video.size, start + CHUNK_SIZE)
+      const chunk = video.slice(start, end)
+
+      const formData = new FormData()
+      formData.append("chunk", chunk)
+      formData.append("chunk_index", String(index))
+      formData.append("total_chunks", String(totalChunks))
+      formData.append("format", "mp3")
+      formData.append("quality", "medium")
+      formData.append("filename", video.name)
+      if (taskId) {
+        formData.append("task_id", taskId)
+      }
+
+      const response = await fetch("/api/convert-video/chunk-upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || "分片上傳失敗")
+      }
+
+      if (!taskId && data.task_id) {
+        taskId = data.task_id as string
+      }
+
+      // 將 0~100 的 30% 分配給上傳進度
+      setTaskProgress(Math.round(((index + 1) / totalChunks) * 30))
+    }
+
+    if (!taskId) throw new Error("task_id 不存在")
+
+    return taskId
+  }
+
+  /**
+   * 將影片檔轉換成音檔並下載，最終返回 File 物件
+   */
+  const convertVideoToAudio = async (video: File): Promise<File> => {
+    // 1. 分片上傳
+    const taskId = await uploadFileInChunks(video)
+
+    // 2. 輪詢轉換進度
+    let finished = false
+    while (!finished) {
+      const res = await fetch(`/api/convert-video/${taskId}/status`)
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.detail || "獲取轉換狀態失敗")
+      }
+
+      if (data.progress !== undefined) {
+        // 映射到 30%~50%
+        const mapped = 30 + Math.round((data.progress / 100) * 20)
+        setTaskProgress(mapped)
+      }
+
+      if (data.status === "completed") {
+        finished = true
+      } else if (data.status === "failed" || data.status === "error") {
+        throw new Error(data.error || "影片轉音檔失敗")
+      } else {
+        // wait 1 second
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+    }
+
+    // 3. 下載音檔
+    const audioRes = await fetch(`/api/convert-video/${taskId}/download`)
+    if (!audioRes.ok) {
+      throw new Error("下載音檔失敗")
+    }
+
+    const audioBlob = await audioRes.blob()
+
+    // 解析 filename
+    const contentDisposition = audioRes.headers.get("content-disposition")
+    let filename = "converted_audio.mp3"
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+      if (match) {
+        filename = match[1].replace(/['"]/g, "")
+      }
+    }
+
+    const audioFile = new File([audioBlob], filename, { type: audioBlob.type })
+
+    // 建立預覽 URL
+    const previewUrl = URL.createObjectURL(audioBlob)
+    setAudioUrl(previewUrl)
+
+    // 50% 基線
+    setTaskProgress(50)
+
+    return audioFile
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -242,8 +385,20 @@ export default function AudioTranscriptionPage() {
     setTaskProgress(0)
 
     try {
+      let targetFile: File = file
+
+      // If the uploaded file is a video, convert it first
+      if (file.type.startsWith("video/")) {
+        toast("影片轉換中", {
+          description: "正在將影片轉換為音檔，請稍候...",
+        })
+        targetFile = await convertVideoToAudio(file)
+        // 更新為音檔文件以便後續預覽與操作
+        setFile(targetFile)
+      }
+
       const formData = new FormData()
-      formData.append("file", file)
+      formData.append("file", targetFile)
       if (language && language !== "auto") {
         formData.append("language", language)
       }
@@ -264,18 +419,24 @@ export default function AudioTranscriptionPage() {
 
       const data = await response.json()
       if (data.task_id) {
+        // 影片轉音檔後的進度基線 50%
         setCurrentTaskId(data.task_id)
-        fetchActiveTasks() // 刷新任務列表
-        toast("任務已啟動", {
-          description: "正在開始處理您的音檔，請稍候...",
+        fetchActiveTasks()
+        toast("轉錄已啟動", {
+          description: "正在開始轉錄音檔...",
         })
+        // 標記為影片流程
+        if (file.type.startsWith("video/")) {
+          setIsVideoFlow(true)
+        }
       } else {
-        // 兼容舊版本直接返回結果的情況
+        // Old style immediate result
         setResult(data)
         setIsLoading(false)
         toast("轉錄完成", {
-          description: "音檔已成功轉錄。",
+          description: "音檔已成功轉錄，您可以查看結果並進行編輯。",
         })
+        setIsVideoFlow(false)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "轉錄過程中發生錯誤"
@@ -318,6 +479,7 @@ export default function AudioTranscriptionPage() {
       URL.revokeObjectURL(audioUrl)
       setAudioUrl(null)
     }
+    setIsVideoFlow(false)
   }
 
   const copyToClipboard = async (text: string) => {
@@ -404,8 +566,8 @@ export default function AudioTranscriptionPage() {
   return (
     <div className="container mx-auto py-8 px-4 max-w-7xl">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2">音檔轉錄工具</h1>
-        <p className="text-muted-foreground">上傳音檔文件獲取準確的轉錄結果，支持實時進度監控</p>
+        <h1 className="text-3xl font-bold mb-2">音檔 / 影片轉錄工具</h1>
+        <p className="text-muted-foreground">上傳音檔或影片文件獲取準確的轉錄結果，支持實時進度監控</p>
       </div>
 
       <Tabs defaultValue="transcribe" className="w-full">
@@ -421,9 +583,9 @@ export default function AudioTranscriptionPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Upload className="w-5 h-5" />
-                  上傳音檔文件
+                  上傳音檔 / 影片文件
                 </CardTitle>
-                <CardDescription>選擇或拖拽音檔文件進行轉錄</CardDescription>
+                <CardDescription>選擇或拖拽音檔或影片文件進行轉錄</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -446,7 +608,7 @@ export default function AudioTranscriptionPage() {
                         </div>
                       </div>
                     </Label>
-                    <Input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
+                    <Input id="file-upload" type="file" accept="audio/*,video/*" onChange={handleFileChange} className="hidden" />
                   </div>
                   
                   {/* Language Selection */}
@@ -671,7 +833,7 @@ export default function AudioTranscriptionPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <FileAudio className="w-12 h-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">上傳音檔文件以查看轉錄結果</p>
+                    <p className="text-muted-foreground">上傳音檔或影片文件以查看轉錄結果</p>
                   </div>
                 )}
               </CardContent>
