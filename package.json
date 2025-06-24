@@ -14,7 +14,8 @@
     "dev:all": "concurrently \"pnpm run dev:fe\" \"pnpm run dev:api\"",
     "start:fe": "pnpm --filter frontend run start --port 8002",
     "start:api": "uvicorn api.src.whisper_api:app --port 8010 --workers 1",
-    "start:all": "concurrently -k \"pnpm run start:fe\" \"pnpm run start:api\""
+    "start:all": "concurrently -k \"pnpm run start:fe\" \"pnpm run start:api\" \"pnpm run cleanup:audio\"",
+    "cleanup:audio": "python -m api.src.cleanup_service"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
