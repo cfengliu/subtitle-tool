@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "音檔工具 - 轉錄與轉換",
-  description: "音檔轉錄和影片轉音頻工具，支持多種格式，快速準確",
+  description: "音檔轉錄和影片轉音檔工具，支持多種格式，快速準確",
 };
 
 export default function RootLayout({

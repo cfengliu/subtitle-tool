@@ -27,7 +27,7 @@ export default function VideoConverterPage() {
     {
       icon: <Zap className="w-6 h-6" />,
       title: "高效轉換",
-      description: "使用專業的 FFmpeg 引擎，提供高品質的音頻轉換"
+      description: "使用專業的 FFmpeg 引擎，提供高品質的音檔轉換"
     },
     {
       icon: <Shield className="w-6 h-6" />,
@@ -37,7 +37,7 @@ export default function VideoConverterPage() {
     {
       icon: <FileAudio className="w-6 h-6" />,
       title: "多格式支持",
-      description: "支持輸出 MP3、WAV、OGG 等常見音頻格式"
+      description: "支持輸出 MP3、WAV、OGG 等常見音檔格式"
     },
     {
       icon: <Download className="w-6 h-6" />,
@@ -55,8 +55,8 @@ export default function VideoConverterPage() {
     <>
     <div className="container mx-auto py-8 px-4 max-w-7xl">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2">影片轉音頻工具</h1>
-        <p className="text-muted-foreground">專業的影片轉音頻工具，支持多種格式轉換</p>
+        <h1 className="text-3xl font-bold mb-2">影片轉音檔工具</h1>
+        <p className="text-muted-foreground">專業的影片轉音檔工具，支持多種格式轉換</p>
       </div>
 
       <Tabs defaultValue="converter" className="w-full">
@@ -76,7 +76,7 @@ export default function VideoConverterPage() {
                   <FileAudio className="w-5 h-5" />
                   轉換完成
                 </CardTitle>
-                <CardDescription>您的音頻文件已準備就緒</CardDescription>
+                <CardDescription>您的音檔文件已準備就緒</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
@@ -138,7 +138,7 @@ export default function VideoConverterPage() {
                 <div>
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <FileAudio className="w-4 h-4" />
-                    輸出格式（音頻）
+                    輸出格式（音檔）
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {supportedFormats.output.map((format) => (
@@ -177,7 +177,7 @@ export default function VideoConverterPage() {
                   </div>
                   <div>
                     <h4 className="font-medium">設定轉換參數</h4>
-                    <p className="text-sm text-muted-foreground">選擇輸出的音頻格式（MP3、WAV、OGG）和品質等級</p>
+                    <p className="text-sm text-muted-foreground">選擇輸出的音檔格式（MP3、WAV、OGG）和品質等級</p>
                   </div>
                 </div>
                 
@@ -197,7 +197,7 @@ export default function VideoConverterPage() {
                   </div>
                   <div>
                     <h4 className="font-medium">下載結果</h4>
-                    <p className="text-sm text-muted-foreground">轉換完成後，可以預覽音頻並下載到您的設備</p>
+                    <p className="text-sm text-muted-foreground">轉換完成後，可以預覽音檔並下載到您的設備</p>
                   </div>
                 </div>
               </div>

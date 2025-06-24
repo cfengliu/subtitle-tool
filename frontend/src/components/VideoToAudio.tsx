@@ -216,7 +216,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
         setIsConverting(false)
         
         toast("轉換完成", {
-          description: `影片已成功轉換為 ${audioFormat.toUpperCase()} 音頻文件。`,
+          description: `影片已成功轉換為 ${audioFormat.toUpperCase()} 音檔文件。`,
         })
       } else if (data.status === 'failed') {
         // 任務失敗
@@ -372,7 +372,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
 
   const downloadAudio = () => {
     if (!audioFile || !audioUrl) {
-      toast.error("沒有可下載的音頻文件")
+      toast.error("沒有可下載的音檔文件")
       return
     }
 
@@ -386,7 +386,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
       document.body.removeChild(a)
       
       toast("下載開始", {
-        description: `音頻文件已開始下載。`,
+        description: `音檔文件已開始下載。`,
       })
     } catch (err) {
       console.error("Download error:", err)
@@ -431,7 +431,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
               <Upload className="w-5 h-5" />
               上傳影片文件
             </CardTitle>
-            <CardDescription>選擇或拖拽影片文件進行音頻轉換</CardDescription>
+            <CardDescription>選擇或拖拽影片文件進行音檔轉換</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -496,7 +496,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="quality-select">音頻品質</Label>
+                  <Label htmlFor="quality-select">音檔品質</Label>
                   <Select 
                     value={audioQuality} 
                     onValueChange={(value: 'high' | 'medium' | 'low') => setAudioQuality(value)}
@@ -626,7 +626,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
               <CheckCircle className="w-5 h-5" />
               轉換結果
             </CardTitle>
-            <CardDescription>轉換後的音頻文件將在這裡顯示</CardDescription>
+            <CardDescription>轉換後的音檔文件將在這裡顯示</CardDescription>
           </CardHeader>
           <CardContent>
             {audioFile && audioUrl ? (
@@ -642,7 +642,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                 <div className="p-4 bg-muted rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
                     <Volume2 className="w-4 h-4" />
-                    <span className="text-sm font-medium">音頻預覽</span>
+                    <span className="text-sm font-medium">音檔預覽</span>
                   </div>
                   <audio
                     ref={audioRef}
@@ -651,14 +651,14 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                     preload="metadata"
                   >
                     <source src={audioUrl} type={audioFile.type} />
-                    您的瀏覽器不支持音頻播放器。
+                    您的瀏覽器不支持音檔播放器。
                   </audio>
                 </div>
 
                 <div className="flex gap-2">
                   <Button onClick={downloadAudio} className="flex-1">
                     <Download className="w-4 h-4 mr-2" />
-                    下載音頻文件
+                    下載音檔文件
                   </Button>
                   <Button 
                     onClick={() => window.open('/?audio=' + encodeURIComponent(audioFile.name), '_blank')} 
@@ -666,7 +666,7 @@ export default function VideoToAudio({ onAudioGenerated }: VideoToAudioProps) {
                     className="flex-1"
                   >
                     <FileText className="w-4 h-4 mr-2" />
-                    轉錄音頻
+                    轉錄音檔
                   </Button>
                 </div>
               </div>

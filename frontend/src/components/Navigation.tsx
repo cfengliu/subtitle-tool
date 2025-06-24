@@ -17,9 +17,9 @@ export default function Navigation() {
     },
     {
       href: "/video-converter",
-      label: "影片轉音頻",
+      label: "影片轉音檔",
       icon: <FileVideo className="w-4 h-4" />,
-      description: "從影片提取音頻"
+      description: "從影片提取音檔"
     }
   ]
 
