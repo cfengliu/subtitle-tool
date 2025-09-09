@@ -374,10 +374,10 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
             # 更新進度
             progress_dict[task_id] = int(((paragraph_idx + 1) / len(paragraphs)) * 80)  # 保留20%用於後處理
 
-        # 生成 SRT 輸出
+        # 生成 SRT 輸出 - 使用原始 segment 文本，不添加標點符號
         for i, item in enumerate(processed_segments, start=1):
             segment = item['segment']
-            segment_text = item['processed_text']
+            segment_text = segment.text.strip()  # 使用原始文本
             
             start_ts = format_timestamp(segment.start)
             end_ts = format_timestamp(segment.end)
