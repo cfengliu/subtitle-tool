@@ -26,7 +26,7 @@ def convert_to_traditional_chinese(text: str) -> str:
         return text
 
 def add_chinese_punctuation(text: str, language: str) -> str:
-    """为中文文本添加基本标点符号 - 改进版本"""
+    """为中文文本添加基本标点符号 - 简化版本"""
     if not text or language not in ['zh', 'chinese']:
         return text
     
@@ -35,77 +35,34 @@ def add_chinese_punctuation(text: str, language: str) -> str:
     # 移除多余空格
     text = re.sub(r'\s+', '', text.strip())
     
-    # 如果文本已经有标点符号，只做清理
+    # 如果文本已经有足够的标点符号，直接返回
     punctuation_count = len(re.findall(r'[。！？，、；：]', text))
-    if punctuation_count > 0:
+    text_length = len(text)
+    if punctuation_count > 0 and (punctuation_count / text_length) > 0.02:
         return clean_punctuation_combinations(text)
     
-    # 基于语义的智能标点添加
-    text = add_semantic_punctuation(text)
+    # 简单的规则：只在明确的语言标记处添加标点
+    # 疑问词后加问号
+    text = re.sub(r'(什么|为什么|怎么|哪里|哪儿|谁|何时|如何|是否|吗|呢)(?![。！？，、；：])', r'\1？', text)
+    
+    # 语气词后加逗号（但不在句子末尾，且只在句子开头）
+    text = re.sub(r'^(那|这)(?=.{5,})(?![。！？，、；：])', r'\1，', text)
+    
+    # 连接词前加逗号（在句子中间）
+    text = re.sub(r'(.{3,})(所以|因为|如果|就是|也就是说)(?=.{3,})(?![。！？，、；：])', r'\1，\2', text)
+    
+    # 转折词前加逗号
+    text = re.sub(r'(.{3,})(但是|不过|然而|可是|而且|另外|同时|接着|然后)(?![。！？，、；：])', r'\1，\2', text)
+    
+    # 在句子结尾添加句号（如果没有其他标点）
+    if not re.search(r'[。！？]$', text):
+        text += '。'
     
     # 清理不合理的标点符号组合
     text = clean_punctuation_combinations(text)
     
     return text
 
-def add_semantic_punctuation(text: str) -> str:
-    """基于语义和语法规则添加标点符号"""
-    import re
-    
-    # 1. 疑问句处理（最高优先级）
-    question_patterns = [
-        r'(什么|为什么|怎么|哪里|哪儿|谁|何时|如何|是否)(.{0,10}?)$',
-        r'(.{0,20}?)(吗|呢)$',
-        r'^(是不是|对不对|好不好|行不行)(.*)$'
-    ]
-    
-    for pattern in question_patterns:
-        if re.search(pattern, text):
-            if not text.endswith('？'):
-                text = re.sub(r'$', '？', text)
-            return text
-    
-    # 2. 感叹句处理
-    exclamation_patterns = [
-        r'(太好了|真的|不可能|天啊|哇|太棒了|厉害|完了|糟糕)',
-        r'(好棒|太棒|真棒|不错|很好|非常好)'
-    ]
-    
-    for pattern in exclamation_patterns:
-        if re.search(pattern, text):
-            if not re.search(r'[。！？]$', text):
-                text += '！'
-            return text
-    
-    # 3. 复合句处理 - 按语义切分
-    text = add_compound_sentence_punctuation(text)
-    
-    # 4. 如果没有句尾标点，添加句号
-    if not re.search(r'[。！？]$', text):
-        text += '。'
-    
-    return text
-
-def add_compound_sentence_punctuation(text: str) -> str:
-    """处理复合句的标点符号"""
-    import re
-    
-    # 转折关系
-    text = re.sub(r'(.{5,}?)(但是|不过|然而|可是|只是)(.{5,})', r'\1，\2\3', text)
-    
-    # 因果关系
-    text = re.sub(r'(.{5,}?)(因为|由于|既然)(.{5,}?)(所以|因此|就)', r'\1，\2\3，\4', text)
-    
-    # 递进关系
-    text = re.sub(r'(.{5,}?)(而且|并且|另外|此外|同时)(.{5,})', r'\1，\2\3', text)
-    
-    # 时间顺序
-    text = re.sub(r'(.{5,}?)(然后|接着|之后|后来|接下来)(.{5,})', r'\1，\2\3', text)
-    
-    # 条件关系
-    text = re.sub(r'(.{5,}?)(如果|要是|假如)(.{5,}?)(就|那么)', r'\1，\2\3，\4', text)
-    
-    return text
 
 def clean_punctuation_combinations(text: str) -> str:
     """清理不合理的标点符号组合"""
