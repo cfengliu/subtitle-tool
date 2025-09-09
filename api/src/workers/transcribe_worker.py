@@ -7,6 +7,18 @@ import opencc
 # 设置日志配置
 logger = logging.getLogger(__name__)
 
+# Optional zh punctuation restoration (zhpr)
+_ZHPR_AVAILABLE = True
+try:
+    # Avoid importing heavy modules unless needed
+    from zhpr.predict import DocumentDataset, merge_stride, decode_pred  # type: ignore
+    from transformers import AutoModelForTokenClassification, AutoTokenizer  # type: ignore
+    from torch.utils.data import DataLoader  # type: ignore
+    logger.info("zhpr modules loaded successfully - Chinese punctuation restoration available")
+except Exception as e:
+    _ZHPR_AVAILABLE = False
+    logger.warning(f"zhpr modules not available - falling back to basic punctuation rules: {e}")
+
 def format_timestamp(seconds: float) -> str:
     """将秒数格式化为 SRT 格式的时间字符串（hh:mm:ss,mmm）"""
     hours = int(seconds // 3600)
@@ -14,6 +26,132 @@ def format_timestamp(seconds: float) -> str:
     secs = int(seconds % 60)
     milliseconds = int((seconds - int(seconds)) * 1000)
     return f"{hours:02}:{minutes:02}:{secs:02},{milliseconds:03}"
+
+def group_segments_into_paragraphs(segments_list, max_gap_seconds=2.0, max_paragraph_segments=10, max_paragraph_chars=500):
+    """將 segments 按時間間隔分組成段落，限制段落大小以避免內存和處理問題"""
+    if not segments_list:
+        return []
+    
+    paragraphs = []
+    current_paragraph = [segments_list[0]]
+    current_char_count = len(segments_list[0].text.strip())
+    
+    for i in range(1, len(segments_list)):
+        prev_segment = segments_list[i-1]
+        current_segment = segments_list[i]
+        segment_text = current_segment.text.strip()
+        
+        # 檢查是否需要開始新段落的條件
+        gap = current_segment.start - prev_segment.end
+        would_exceed_segments = len(current_paragraph) >= max_paragraph_segments
+        would_exceed_chars = current_char_count + len(segment_text) > max_paragraph_chars
+        has_time_gap = gap > max_gap_seconds
+        
+        if has_time_gap or would_exceed_segments or would_exceed_chars:
+            paragraphs.append(current_paragraph)
+            current_paragraph = [current_segment]
+            current_char_count = len(segment_text)
+        else:
+            current_paragraph.append(current_segment)
+            current_char_count += len(segment_text)
+    
+    # 添加最後一個段落
+    if current_paragraph:
+        paragraphs.append(current_paragraph)
+    
+    return paragraphs
+
+def process_paragraph_punctuation(paragraph_segments, zh_restorer, detected_language, worker_logger):
+    """處理整個段落的標點符號，返回處理後的段落文本和每個segment的文本"""
+    # 組合段落文本
+    paragraph_text = ""
+    segment_texts = []
+    
+    for segment in paragraph_segments:
+        clean_text = segment.text.strip()
+        segment_texts.append(clean_text)
+        paragraph_text += clean_text
+    
+    # 處理標點符號
+    if detected_language == 'zh':
+        if zh_restorer is not None:
+            try:
+                punctuated_paragraph = zh_restorer.punctuate(paragraph_text)
+                worker_logger.info(f"Applied zhpr punctuation to paragraph: '{paragraph_text[:50]}...' -> '{punctuated_paragraph[:50]}...'")
+                distributed_result = distribute_punctuation_to_segments(segment_texts, paragraph_text, punctuated_paragraph)
+                worker_logger.info(f"Distributed result: {distributed_result[:3]}...")  # Show first 3 segments
+                return distributed_result
+            except Exception as e:
+                worker_logger.warning(f"zhpr punctuate failed for paragraph, falling back to rules: {e}")
+                # 逐句處理作為後備方案
+                result = []
+                for segment_text in segment_texts:
+                    result.append(add_chinese_punctuation(segment_text, detected_language))
+                return result
+        else:
+            # 使用規則處理整個段落
+            punctuated_paragraph = add_chinese_punctuation(paragraph_text, detected_language)
+            return distribute_punctuation_to_segments(segment_texts, paragraph_text, punctuated_paragraph)
+    
+    # 非中文直接返回原文本
+    return segment_texts
+
+def distribute_punctuation_to_segments(original_segments, original_paragraph, punctuated_paragraph):
+    """將標點符號處理後的段落文本重新分配給原始segments"""
+    import re
+    
+    # 如果標點符號處理失敗或沒有變化，直接返回原文本
+    if not punctuated_paragraph or punctuated_paragraph == original_paragraph:
+        return original_segments
+    
+    # 移除原始段落中的所有空格來匹配
+    clean_original = original_paragraph.replace(' ', '')
+    clean_punctuated = punctuated_paragraph.replace(' ', '')
+    
+    result = []
+    punctuated_index = 0
+    
+    for segment_text in original_segments:
+        clean_segment = segment_text.replace(' ', '')
+        segment_result = ""
+        
+        # 查找這個segment在標點文本中的對應位置
+        if punctuated_index < len(clean_punctuated):
+            # 逐字符匹配並收集標點符號
+            char_index = 0
+            while char_index < len(clean_segment) and punctuated_index < len(clean_punctuated):
+                orig_char = clean_segment[char_index]
+                punct_char = clean_punctuated[punctuated_index]
+                
+                if orig_char == punct_char:
+                    # 字符匹配，添加到結果
+                    segment_result += punct_char
+                    char_index += 1
+                    punctuated_index += 1
+                elif punct_char in '，。！？；：、（）【】""''…—':
+                    # 遇到標點符號，添加到結果但不增加原文索引
+                    segment_result += punct_char
+                    punctuated_index += 1
+                else:
+                    # 不匹配，可能是字符變化，跳過
+                    char_index += 1
+                    punctuated_index += 1
+            
+            # 如果這是段落的最後一個segment，檢查是否有剩餘的標點符號
+            if segment_text == original_segments[-1]:
+                while punctuated_index < len(clean_punctuated):
+                    remaining_char = clean_punctuated[punctuated_index]
+                    if remaining_char in '，。！？；：、（）【】""''…—':
+                        segment_result += remaining_char
+                    punctuated_index += 1
+        
+        # 如果沒有找到匹配，使用原文本
+        if not segment_result:
+            segment_result = segment_text
+            
+        result.append(segment_result)
+    
+    return result
 
 def convert_to_traditional_chinese(text: str) -> str:
     """将简体中文转换为繁体中文"""
@@ -88,9 +226,80 @@ def clean_punctuation_combinations(text: str) -> str:
     
     return text
 
+
+class _ZhPunctuationRestorer:
+    """Chinese punctuation restorer using zhpr README approach.
+
+    Loads the pretrained model 'p208p2002/zh-wiki-punctuation-restore' and
+    restores punctuation for a given Chinese text. If model loading fails,
+    callers should catch exceptions and fall back.
+    """
+
+    def __init__(self, device: str = "cpu") -> None:
+        self.device = device
+        self.model_name = "p208p2002/zh-wiki-punctuation-restore"
+        self.model = AutoModelForTokenClassification.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        if self.device == "cuda":
+            self.model.to("cuda")
+
+    def punctuate(self, text: str, window_size: int = 256, step: int = 200) -> str:
+        if not text:
+            return text
+        dataset = DocumentDataset(text, window_size=window_size, step=step)
+        dataloader = DataLoader(dataset=dataset, shuffle=False, batch_size=4)
+
+        self.model.eval()
+        model_pred_out = []
+        with torch.no_grad():
+            for batch in dataloader:
+                if self.device == "cuda":
+                    batch = batch.to("cuda")
+                batch_out = self._predict_step(batch)
+                for out in batch_out:
+                    model_pred_out.append(out)
+
+        merged = merge_stride(model_pred_out, step)
+        decoded = decode_pred(merged)
+        return "".join(decoded)
+
+    def _predict_step(self, batch):
+        batch_out = []
+        batch_input_ids = batch
+        encodings = {"input_ids": batch_input_ids}
+        output = self.model(**encodings)
+        predicted_token_class_id_batch = output["logits"].argmax(-1)
+        for predicted_token_class_ids, input_ids in zip(
+            predicted_token_class_id_batch, batch_input_ids
+        ):
+            out = []
+            tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
+            input_ids_list = input_ids.tolist()
+            try:
+                pad_start = input_ids_list.index(self.tokenizer.pad_token_id)
+            except Exception:
+                pad_start = len(input_ids_list)
+            tokens = tokens[:pad_start]
+            predicted_tokens_classes = [
+                self.model.config.id2label[t.item()] for t in predicted_token_class_ids
+            ]
+            predicted_tokens_classes = predicted_tokens_classes[:pad_start]
+            for token, ner in zip(tokens, predicted_tokens_classes):
+                out.append((token, ner))
+            batch_out.append(out)
+        return batch_out
+
 def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progress_dict: dict, task_id: str):
     """在独立进程中执行转录的工作函数"""
     try:
+        # 在子进程中设置日志
+        import logging
+        logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
+        worker_logger = logging.getLogger(__name__)
+        
+        # 记录 zhpr 状态
+        worker_logger.info(f"Worker {task_id} started - zhpr available: {_ZHPR_AVAILABLE}")
+        
         # 在子进程中重新初始化模型
         device = "cuda" if torch.cuda.is_available() else "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
@@ -118,25 +327,75 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         segments_list = list(segments)
         total_segments = len(segments_list)
         
-        for i, segment in enumerate(segments_list, start=1):
-            # 更新进度
-            progress_dict[task_id] = int((i / total_segments) * 100)
+        # Prepare zh punctuation restorer if needed
+        zh_restorer = None
+        def _is_zh(lang: str) -> bool:
+            try:
+                return lang == 'zh' or lang.startswith('zh') or lang.lower() in ('chinese',)
+            except Exception:
+                return False
+
+        if (_ZHPR_AVAILABLE and ((language and _is_zh(language)) or (not language and _is_zh(detected_language)))):
+            try:
+                zh_restorer = _ZhPunctuationRestorer(device=device)
+                worker_logger.info(f"Using zhpr ML-based punctuation restoration for Chinese text")
+            except Exception as e:
+                worker_logger.warning(f"Failed to initialize zhpr restorer: {e}")
+                zh_restorer = None
+        else:
+            zh_restorer = None
+            if ((language and _is_zh(language)) or (not language and _is_zh(detected_language))):
+                worker_logger.info(f"Using rule-based punctuation restoration for Chinese text")
+
+        # 將 segments 分組為段落並處理
+        paragraphs = group_segments_into_paragraphs(segments_list, max_gap_seconds=2.0, max_paragraph_segments=10, max_paragraph_chars=500)
+        
+        # 統計段落信息
+        max_paragraph_size = max(len(p) for p in paragraphs) if paragraphs else 0
+        avg_paragraph_size = sum(len(p) for p in paragraphs) / len(paragraphs) if paragraphs else 0
+        
+        worker_logger.info(f"Grouped {len(segments_list)} segments into {len(paragraphs)} paragraphs")
+        worker_logger.info(f"Paragraph stats - Max: {max_paragraph_size} segments, Avg: {avg_paragraph_size:.1f} segments")
+        
+        processed_segments = []
+        for paragraph_idx, paragraph_segments in enumerate(paragraphs):
+            # 處理段落標點符號
+            paragraph_processed_texts = process_paragraph_punctuation(
+                paragraph_segments, zh_restorer, detected_language, worker_logger
+            )
+            
+            # 將處理結果與原始segments組合
+            for segment, processed_text in zip(paragraph_segments, paragraph_processed_texts):
+                processed_segments.append({
+                    'segment': segment,
+                    'processed_text': processed_text
+                })
+            
+            # 更新進度
+            progress_dict[task_id] = int(((paragraph_idx + 1) / len(paragraphs)) * 80)  # 保留20%用於後處理
+
+        # 生成 SRT 輸出
+        for i, item in enumerate(processed_segments, start=1):
+            segment = item['segment']
+            segment_text = item['processed_text']
             
             start_ts = format_timestamp(segment.start)
             end_ts = format_timestamp(segment.end)
             
-            # 处理每个片段的文本，添加标点符号并转换为繁体中文
-            segment_text = segment.text.strip()
+            # 如果是中文，轉換為繁體中文
             if detected_language == 'zh':
-                segment_text = add_chinese_punctuation(segment_text, detected_language)
-                # 转换为繁体中文
                 segment_text = convert_to_traditional_chinese(segment_text)
             
             srt_output += f"{i}\n{start_ts} --> {end_ts}\n{segment_text}\n\n"
             
-            # 根据语言决定是否需要空格分隔
-            # 中文、日文、韩文、泰文不需要空格，其他语言需要空格
-            no_space_languages = ['zh', 'ja', 'ko', 'th', 'chinese', 'japanese', 'korean', 'thai']
+        # 生成 TXT 輸出
+        no_space_languages = ['zh', 'ja', 'ko', 'th', 'chinese', 'japanese', 'korean', 'thai']
+        for i, item in enumerate(processed_segments):
+            segment_text = item['processed_text']
+            
+            # 如果是中文，轉換為繁體中文
+            if detected_language == 'zh':
+                segment_text = convert_to_traditional_chinese(segment_text)
             
             if detected_language in no_space_languages:
                 # 中文等语言直接连接，不加空格

@@ -5,3 +5,7 @@ uvicorn
 torch>=2.5.1
 opencc-python-reimplemented
 apscheduler
+zhpr
+transformers>=4.24.0
+pytorch-lightning
+numpy>=1.21.0,<2.0.0
