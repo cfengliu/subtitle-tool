@@ -8,8 +8,11 @@ except RuntimeError:
 import torch
 import logging
 from fastapi import FastAPI
-from .routers.transcribe import router as transcribe_router
+
 from .routers.convert import router as convert_router
+from .routers.transcribe import router as transcribe_router
+from .utils.text_conversion import convert_to_traditional_chinese
+from .workers.transcribe_worker import add_chinese_punctuation, format_timestamp
 
 # 设置日志配置
 logging.basicConfig(level=logging.INFO)  # 设置日志级别为 INFO
@@ -31,3 +34,12 @@ app.include_router(convert_router)
 async def health_check():
     """健康检查端点"""
     return {"status": "healthy", "message": "API 服务运行正常"}
+
+
+__all__ = [
+    "app",
+    "health_check",
+    "format_timestamp",
+    "convert_to_traditional_chinese",
+    "add_chinese_punctuation",
+]

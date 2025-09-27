@@ -1,5 +1,6 @@
 from multiprocessing import Process, Queue, Manager
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from pydantic import BaseModel
 from typing import Optional, Dict
 import tempfile
 import os
@@ -9,6 +10,7 @@ import threading
 from threading import Semaphore
 import time
 from ..workers.transcribe_worker import transcribe_worker
+from ..utils.text_conversion import convert_to_traditional_chinese
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -46,6 +48,16 @@ class TranscriptionTask:
         
     def is_cancelled(self):
         return self.status == "cancelled"
+
+
+class ConvertToTraditionalRequest(BaseModel):
+    txt: Optional[str] = None
+    srt: Optional[str] = None
+
+
+class ConvertToTraditionalResponse(BaseModel):
+    txt: Optional[str] = None
+    srt: Optional[str] = None
 
 @router.post("/", 
     responses={
@@ -227,6 +239,45 @@ async def cancel_transcribe_task(task_id: str):
         "status": "cancelled",
         "message": "任务已被强制终止"
     }
+
+
+@router.post(
+    "/convert-traditional",
+    response_model=ConvertToTraditionalResponse,
+    responses={
+        200: {
+            "description": "文本已成功转换为繁体中文",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "txt": "繁體中文內容",
+                        "srt": "1\\n00:00:00,000 --> 00:00:02,000\\n繁體字幕內容"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "缺少需要转换的文本内容",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "No text provided for conversion"
+                    }
+                }
+            }
+        }
+    }
+)
+async def convert_transcription_to_traditional(payload: ConvertToTraditionalRequest):
+    """Convert transcription payload to traditional Chinese."""
+
+    if payload.txt is None and payload.srt is None:
+        raise HTTPException(status_code=400, detail="No text provided for conversion")
+
+    converted_txt = convert_to_traditional_chinese(payload.txt) if payload.txt is not None else None
+    converted_srt = convert_to_traditional_chinese(payload.srt) if payload.srt is not None else None
+
+    return ConvertToTraditionalResponse(txt=converted_txt, srt=converted_srt)
 
 @router.get("/{task_id}/status",
     responses={

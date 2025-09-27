@@ -2,7 +2,8 @@ from multiprocessing import Queue
 import torch
 from faster_whisper import WhisperModel
 import logging
-import opencc
+
+from ..utils.text_conversion import convert_to_traditional_chinese
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -152,16 +153,6 @@ def distribute_punctuation_to_segments(original_segments, original_paragraph, pu
         result.append(segment_result)
     
     return result
-
-def convert_to_traditional_chinese(text: str) -> str:
-    """将简体中文转换为繁体中文"""
-    try:
-        # 初始化 OpenCC 转换器 (简体转繁体)
-        converter = opencc.OpenCC('s2t')
-        return converter.convert(text)
-    except Exception as e:
-        logger.warning(f"Failed to convert to traditional Chinese: {e}")
-        return text
 
 def add_chinese_punctuation(text: str, language: str) -> str:
     """为中文文本添加基本标点符号 - 简化版本"""

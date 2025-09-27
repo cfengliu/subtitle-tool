@@ -28,7 +28,8 @@ import {
   Clock,
   Download,
   Copy,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from "lucide-react"
 import AudioCutter from "@/components/AudioCutter"
 
@@ -77,6 +78,7 @@ export default function AudioTranscriptionPage() {
   const [dragActive, setDragActive] = useState(false)
   const [activeTab, setActiveTab] = useState<'txt' | 'srt'>('txt')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [isConvertingTraditional, setIsConvertingTraditional] = useState(false)
   
   // 新增状态用于任务管理
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
@@ -386,6 +388,68 @@ export default function AudioTranscriptionPage() {
     }
   }
 
+  const convertResultToTraditional = async () => {
+    if (!result) {
+      toast.error("無轉換內容", {
+        description: "請先上傳音檔以取得轉錄結果。",
+      })
+      return
+    }
+
+    if (!(result.txt || result.srt)) {
+      toast.error("內容為空", {
+        description: "目前沒有可轉換的文本。",
+      })
+      return
+    }
+
+    try {
+      setIsConvertingTraditional(true)
+      const response = await fetch("/api/transcribe/convert-traditional", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          txt: result.txt ?? null,
+          srt: result.srt ?? null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({})) as { detail?: unknown }
+        const detail = errorData?.detail
+        const message = typeof detail === "string" ? detail : "簡繁轉換失敗"
+        throw new Error(message)
+      }
+
+      const data = await response.json() as { txt?: string | null; srt?: string | null }
+
+      setResult((prev) => {
+        if (!prev) return prev
+        const updated: TranscriptionResult = { ...prev }
+        if (typeof data.txt === "string") {
+          updated.txt = data.txt
+        }
+        if (typeof data.srt === "string") {
+          updated.srt = data.srt
+        }
+        return updated
+      })
+
+      toast("已轉為繁體", {
+        description: "轉錄內容已轉換為繁體中文。",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "無法轉換為繁體，請稍後再試。"
+      toast.error("轉換失敗", {
+        description: message,
+      })
+    } finally {
+      setIsConvertingTraditional(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "running":
@@ -654,6 +718,19 @@ export default function AudioTranscriptionPage() {
                       >
                         <Copy className="w-4 h-4 mr-2" />
                         複製到剪貼板
+                      </Button>
+                      <Button
+                        onClick={convertResultToTraditional}
+                        variant="secondary"
+                        className="flex-1"
+                        disabled={isConvertingTraditional}
+                      >
+                        {isConvertingTraditional ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 mr-2" />
+                        )}
+                        簡轉繁
                       </Button>
                       <Button
                         onClick={() => {
