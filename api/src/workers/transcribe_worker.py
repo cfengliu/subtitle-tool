@@ -108,16 +108,26 @@ def distribute_punctuation_to_segments(original_segments, original_paragraph, pu
         return original_segments
     
     # 移除原始段落中的所有空格來匹配
-    clean_original = original_paragraph.replace(' ', '')
     clean_punctuated = punctuated_paragraph.replace(' ', '')
-    
+
+    def _preserve_length_placeholder(match):
+        return ' ' * len(match.group(0))
+
+    # 用空格佔位保留特殊 token 長度，避免破壞索引對齊
+    clean_punctuated = re.sub(r'\[(UNK|PAD|CLS|SEP|MASK)\]', _preserve_length_placeholder, clean_punctuated)
+
     result = []
     punctuated_index = 0
-    
+
+    # 定義標點符號集合
+    PUNCTUATION = '，。！？；：、（）【】""''…—'
+    # 向前看的最大字符數（用於重新對齊）
+    LOOKAHEAD = 3
+
     for segment_text in original_segments:
         clean_segment = segment_text.replace(' ', '')
         segment_result = ""
-        
+
         # 查找這個segment在標點文本中的對應位置
         if punctuated_index < len(clean_punctuated):
             # 逐字符匹配並收集標點符號
@@ -125,33 +135,65 @@ def distribute_punctuation_to_segments(original_segments, original_paragraph, pu
             while char_index < len(clean_segment) and punctuated_index < len(clean_punctuated):
                 orig_char = clean_segment[char_index]
                 punct_char = clean_punctuated[punctuated_index]
-                
+
                 if orig_char == punct_char:
                     # 字符匹配，添加到結果
                     segment_result += punct_char
                     char_index += 1
                     punctuated_index += 1
-                elif punct_char in '，。！？；：、（）【】""''…—':
+                elif punct_char in PUNCTUATION:
                     # 遇到標點符號，添加到結果但不增加原文索引
                     segment_result += punct_char
                     punctuated_index += 1
-                else:
-                    # 不匹配，可能是字符變化，跳過
-                    char_index += 1
+                elif punct_char == ' ':
+                    # 佔位符 - 跳過但保留索引位置
                     punctuated_index += 1
-            
+                else:
+                    # 不匹配 - 嘗試向前看以重新對齊
+                    realigned = False
+                    for look_ahead in range(1, LOOKAHEAD + 1):
+                        if punctuated_index + look_ahead < len(clean_punctuated):
+                            future_punct_char = clean_punctuated[punctuated_index + look_ahead]
+                            if future_punct_char == orig_char:
+                                # 找到對齊點 - 跳過中間的標點符號
+                                for skip_idx in range(look_ahead):
+                                    skip_char = clean_punctuated[punctuated_index + skip_idx]
+                                    if skip_char in PUNCTUATION:
+                                        segment_result += skip_char
+                                punctuated_index += look_ahead
+                                realigned = True
+                                break
+
+                    if not realigned:
+                        # 無法重新對齊 - 保留原文字符，跳過標點文本
+                        segment_result += orig_char
+                        char_index += 1
+                        punctuated_index += 1
+
+            # 處理原文剩餘的字符
+            while char_index < len(clean_segment):
+                segment_result += clean_segment[char_index]
+                char_index += 1
+
             # 如果這是段落的最後一個segment，檢查是否有剩餘的標點符號
             if segment_text == original_segments[-1]:
                 while punctuated_index < len(clean_punctuated):
                     remaining_char = clean_punctuated[punctuated_index]
-                    if remaining_char in '，。！？；：、（）【】""''…—':
+                    if remaining_char in PUNCTUATION:
                         segment_result += remaining_char
                     punctuated_index += 1
-        
+
         # 如果沒有找到匹配，使用原文本
         if not segment_result:
             segment_result = segment_text
-            
+        else:
+            # 驗證：移除標點後應該與原文相同
+            stripped_result = re.sub(f'[{re.escape(PUNCTUATION)}]', '', segment_result)
+            stripped_result = stripped_result.replace(' ', '')
+            if stripped_result != clean_segment:
+                # segment 級別的回退 - 只回退這一個 segment
+                segment_result = segment_text
+
         result.append(segment_result)
     
     return result
