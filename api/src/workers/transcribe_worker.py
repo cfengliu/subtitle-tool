@@ -1,9 +1,11 @@
 from multiprocessing import Queue
+import os
 import torch
 from faster_whisper import WhisperModel
 import logging
 
 from ..utils.text_conversion import convert_to_traditional_chinese
+from ..utils.audio_processing import denoise_audio
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -106,16 +108,26 @@ def distribute_punctuation_to_segments(original_segments, original_paragraph, pu
         return original_segments
     
     # 移除原始段落中的所有空格來匹配
-    clean_original = original_paragraph.replace(' ', '')
     clean_punctuated = punctuated_paragraph.replace(' ', '')
-    
+
+    def _preserve_length_placeholder(match):
+        return ' ' * len(match.group(0))
+
+    # 用空格佔位保留特殊 token 長度，避免破壞索引對齊
+    clean_punctuated = re.sub(r'\[(UNK|PAD|CLS|SEP|MASK)\]', _preserve_length_placeholder, clean_punctuated)
+
     result = []
     punctuated_index = 0
-    
+
+    # 定義標點符號集合
+    PUNCTUATION = '，。！？；：、（）【】""''…—'
+    # 向前看的最大字符數（用於重新對齊）
+    LOOKAHEAD = 3
+
     for segment_text in original_segments:
         clean_segment = segment_text.replace(' ', '')
         segment_result = ""
-        
+
         # 查找這個segment在標點文本中的對應位置
         if punctuated_index < len(clean_punctuated):
             # 逐字符匹配並收集標點符號
@@ -123,33 +135,65 @@ def distribute_punctuation_to_segments(original_segments, original_paragraph, pu
             while char_index < len(clean_segment) and punctuated_index < len(clean_punctuated):
                 orig_char = clean_segment[char_index]
                 punct_char = clean_punctuated[punctuated_index]
-                
+
                 if orig_char == punct_char:
                     # 字符匹配，添加到結果
                     segment_result += punct_char
                     char_index += 1
                     punctuated_index += 1
-                elif punct_char in '，。！？；：、（）【】""''…—':
+                elif punct_char in PUNCTUATION:
                     # 遇到標點符號，添加到結果但不增加原文索引
                     segment_result += punct_char
                     punctuated_index += 1
-                else:
-                    # 不匹配，可能是字符變化，跳過
-                    char_index += 1
+                elif punct_char == ' ':
+                    # 佔位符 - 跳過但保留索引位置
                     punctuated_index += 1
-            
+                else:
+                    # 不匹配 - 嘗試向前看以重新對齊
+                    realigned = False
+                    for look_ahead in range(1, LOOKAHEAD + 1):
+                        if punctuated_index + look_ahead < len(clean_punctuated):
+                            future_punct_char = clean_punctuated[punctuated_index + look_ahead]
+                            if future_punct_char == orig_char:
+                                # 找到對齊點 - 跳過中間的標點符號
+                                for skip_idx in range(look_ahead):
+                                    skip_char = clean_punctuated[punctuated_index + skip_idx]
+                                    if skip_char in PUNCTUATION:
+                                        segment_result += skip_char
+                                punctuated_index += look_ahead
+                                realigned = True
+                                break
+
+                    if not realigned:
+                        # 無法重新對齊 - 保留原文字符，跳過標點文本
+                        segment_result += orig_char
+                        char_index += 1
+                        punctuated_index += 1
+
+            # 處理原文剩餘的字符
+            while char_index < len(clean_segment):
+                segment_result += clean_segment[char_index]
+                char_index += 1
+
             # 如果這是段落的最後一個segment，檢查是否有剩餘的標點符號
             if segment_text == original_segments[-1]:
                 while punctuated_index < len(clean_punctuated):
                     remaining_char = clean_punctuated[punctuated_index]
-                    if remaining_char in '，。！？；：、（）【】""''…—':
+                    if remaining_char in PUNCTUATION:
                         segment_result += remaining_char
                     punctuated_index += 1
-        
+
         # 如果沒有找到匹配，使用原文本
         if not segment_result:
             segment_result = segment_text
-            
+        else:
+            # 驗證：移除標點後應該與原文相同
+            stripped_result = re.sub(f'[{re.escape(PUNCTUATION)}]', '', segment_result)
+            stripped_result = stripped_result.replace(' ', '')
+            if stripped_result != clean_segment:
+                # segment 級別的回退 - 只回退這一個 segment
+                segment_result = segment_text
+
         result.append(segment_result)
     
     return result
@@ -280,8 +324,17 @@ class _ZhPunctuationRestorer:
             batch_out.append(out)
         return batch_out
 
-def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progress_dict: dict, task_id: str):
+def transcribe_worker(
+    audio_path: str,
+    language: str,
+    result_queue: Queue,
+    progress_dict: dict,
+    task_id: str,
+    apply_denoise: bool = False,
+):
     """在独立进程中执行转录的工作函数"""
+    denoise_temp_path = None
+
     try:
         # 在子进程中设置日志
         import logging
@@ -291,6 +344,24 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         # 记录 zhpr 状态
         worker_logger.info(f"Worker {task_id} started - zhpr available: {_ZHPR_AVAILABLE}")
         
+        processed_audio_path = audio_path
+
+        if apply_denoise:
+            try:
+                current_progress = progress_dict.get(task_id, 0)
+            except Exception:
+                current_progress = 0
+
+            progress_dict[task_id] = max(current_progress, 5)
+            success, denoised_path, message = denoise_audio(audio_path)
+            if success and denoised_path:
+                processed_audio_path = denoised_path
+                denoise_temp_path = denoised_path
+                worker_logger.info(f"Noise reduction applied for task {task_id}: {message}")
+                progress_dict[task_id] = max(progress_dict.get(task_id, 0), 10)
+            else:
+                worker_logger.warning(f"Noise reduction requested but failed for task {task_id}: {message}")
+
         # 在子进程中重新初始化模型
         device = "cuda" if torch.cuda.is_available() else "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
@@ -304,10 +375,10 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         }
         
         if language:
-            segments, info = worker_model.transcribe(audio_path, language=language, **transcribe_options)
+            segments, info = worker_model.transcribe(processed_audio_path, language=language, **transcribe_options)
             detected_language = language
         else:
-            segments, info = worker_model.transcribe(audio_path, **transcribe_options)
+            segments, info = worker_model.transcribe(processed_audio_path, **transcribe_options)
             detected_language = info.language
         
         # 生成 SRT 格式
@@ -409,7 +480,8 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
             "srt": srt_output, 
             "txt": txt_output,
             "detected_language": detected_language,
-            "status": "completed"
+            "status": "completed",
+            "noise_reduction_applied": apply_denoise and denoise_temp_path is not None
         }
         result_queue.put(result)
         
@@ -417,3 +489,9 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         logger.error("Error during transcription: %s", e)
         error_result = {"error": "Transcription failed.", "status": "error"}
         result_queue.put(error_result) 
+    finally:
+        if denoise_temp_path and os.path.exists(denoise_temp_path):
+            try:
+                os.remove(denoise_temp_path)
+            except OSError:
+                logger.warning(f"Failed to clean up denoised file: {denoise_temp_path}")

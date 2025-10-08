@@ -38,6 +38,7 @@ interface TranscriptionResult {
   txt?: string
   detected_language?: string
   status?: string
+  noise_reduction_applied?: boolean
   [key: string]: unknown
 }
 
@@ -53,10 +54,11 @@ interface TaskStatus {
 interface ActiveTask {
   task_id: string
   filename: string
-  language: string
+  language?: string
   status: "running" | "completed" | "error" | "cancelled"
   progress: number
   created_at: string
+  denoise?: boolean
 }
 
 interface ValidationError {
@@ -72,6 +74,7 @@ interface HTTPValidationError {
 export default function AudioTranscriptionPage() {
   const [file, setFile] = useState<File | null>(null)
   const [language, setLanguage] = useState<string>("auto")
+  const [denoise, setDenoise] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<TranscriptionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -249,6 +252,7 @@ export default function AudioTranscriptionPage() {
       if (language && language !== "auto") {
         formData.append("language", language)
       }
+      formData.append("denoise", denoise ? "true" : "false")
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -312,6 +316,7 @@ export default function AudioTranscriptionPage() {
   const resetForm = () => {
     setFile(null)
     setLanguage("auto")
+    setDenoise(false)
     setResult(null)
     setError(null)
     setCurrentTaskId(null)
@@ -536,6 +541,25 @@ export default function AudioTranscriptionPage() {
                     </p>
                   </div>
 
+                  <div className="flex items-start justify-between rounded-lg border p-3">
+                    <div className="space-y-1 pr-3">
+                      <Label htmlFor="denoise-toggle" className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        啟用降噪
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        勾選後將先透過 FFmpeg 做基礎降噪，再開始轉錄流程。
+                      </p>
+                    </div>
+                    <input
+                      id="denoise-toggle"
+                      type="checkbox"
+                      checked={denoise}
+                      onChange={(event) => setDenoise(event.target.checked)}
+                      className="h-5 w-5 accent-primary mt-1"
+                    />
+                  </div>
+
                   {file && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
@@ -632,99 +656,108 @@ export default function AudioTranscriptionPage() {
                 <CardDescription>轉錄的文本將在這裡顯示</CardDescription>
               </CardHeader>
               <CardContent>
-                {result ? (
-                  <div className="space-y-4">
-                    {/* Language Detection Result */}
-                    {result.detected_language && (
-                      <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                        <Languages className="w-4 h-4" />
-                        <span className="text-sm font-medium">檢測語言:</span>
-                        <span className="text-sm text-muted-foreground">
-                          {commonLanguages.find(lang => lang.code === result.detected_language)?.name || 
-                           result.detected_language}
-                        </span>
-                      </div>
-                    )}
+                    {result ? (
+                      <div className="space-y-4">
+                        {/* Language Detection Result */}
+                        {result.detected_language && (
+                          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                            <Languages className="w-4 h-4" />
+                            <span className="text-sm font-medium">檢測語言:</span>
+                            <span className="text-sm text-muted-foreground">
+                              {commonLanguages.find(lang => lang.code === result.detected_language)?.name || 
+                               result.detected_language}
+                            </span>
+                          </div>
+                        )}
+                        {typeof result.noise_reduction_applied !== "undefined" && (
+                          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                            <Sparkles className="w-4 h-4" />
+                            <span className="text-sm font-medium">降噪狀態:</span>
+                            <span className="text-sm text-muted-foreground">
+                              {result.noise_reduction_applied ? "已啟用" : "未啟用"}
+                            </span>
+                          </div>
+                        )}
 
-                    {audioUrl && (
-                      <div className="p-4 bg-muted rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Volume2 className="w-4 h-4" />
-                          <span className="text-sm font-medium">原始音檔</span>
+                        {audioUrl && (
+                          <div className="p-4 bg-muted rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Volume2 className="w-4 h-4" />
+                              <span className="text-sm font-medium">原始音檔</span>
+                            </div>
+                            <audio
+                              key={audioUrl}
+                              controls
+                              className="w-full"
+                              preload="metadata"
+                            >
+                              <source src={audioUrl} type={file?.type} />
+                              您的瀏覽器不支持音檔播放器。
+                            </audio>
+                          </div>
+                        )}
+
+                        {/* Format Tabs */}
+                        <div className="flex space-x-1 bg-muted p-1 rounded-lg">
+                          <button
+                            onClick={() => setActiveTab('txt')}
+                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'txt'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                          >
+                            <FileText className="w-4 h-4" />
+                            純文本
+                          </button>
+                          <button
+                            onClick={() => setActiveTab('srt')}
+                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'srt'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                          >
+                            <Subtitles className="w-4 h-4" />
+                            SRT字幕
+                          </button>
                         </div>
-                        <audio
-                          key={audioUrl}
-                          controls
-                          className="w-full"
-                          preload="metadata"
-                        >
-                          <source src={audioUrl} type={file?.type} />
-                          您的瀏覽器不支持音檔播放器。
-                        </audio>
-                      </div>
-                    )}
 
-                    {/* Format Tabs */}
-                    <div className="flex space-x-1 bg-muted p-1 rounded-lg">
-                      <button
-                        onClick={() => setActiveTab('txt')}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'txt'
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                      >
-                        <FileText className="w-4 h-4" />
-                        純文本
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('srt')}
-                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'srt'
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                      >
-                        <Subtitles className="w-4 h-4" />
-                        SRT字幕
-                      </button>
-                    </div>
+                        {/* Content Display */}
+                        <div className="p-4 bg-muted rounded-lg">
+                          <Label className="text-sm font-medium mb-2 block">
+                            {activeTab === 'txt' ? '轉錄文本：' : 'SRT字幕：'}
+                          </Label>
+                          <Textarea
+                            value={activeTab === 'txt' ? result.txt || '' : result.srt || ''}
+                            onChange={(e) => {
+                              if (activeTab === 'txt') {
+                                setResult(prev => prev ? { ...prev, txt: e.target.value } : null)
+                              } else {
+                                setResult(prev => prev ? { ...prev, srt: e.target.value } : null)
+                              }
+                            }}
+                            className="min-h-[300px] resize-none font-mono text-sm"
+                            placeholder={activeTab === 'txt' ? '轉錄文本將在這裡顯示...' : 'SRT字幕將在這裡顯示...'}
+                          />
+                        </div>
 
-                    {/* Content Display */}
-                    <div className="p-4 bg-muted rounded-lg">
-                      <Label className="text-sm font-medium mb-2 block">
-                        {activeTab === 'txt' ? '轉錄文本：' : 'SRT字幕：'}
-                      </Label>
-                      <Textarea
-                        value={activeTab === 'txt' ? result.txt || '' : result.srt || ''}
-                        onChange={(e) => {
-                          if (activeTab === 'txt') {
-                            setResult(prev => prev ? { ...prev, txt: e.target.value } : null)
-                          } else {
-                            setResult(prev => prev ? { ...prev, srt: e.target.value } : null)
-                          }
-                        }}
-                        className="min-h-[300px] resize-none font-mono text-sm"
-                        placeholder={activeTab === 'txt' ? '轉錄文本將在這裡顯示...' : 'SRT字幕將在這裡顯示...'}
-                      />
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => {
-                          const text = activeTab === 'txt' ? result.txt || '' : result.srt || ''
-                          copyToClipboard(text)
-                        }}
-                        className="flex-1"
-                      >
-                        <Copy className="w-4 h-4 mr-2" />
-                        複製到剪貼板
-                      </Button>
-                      <Button
-                        onClick={convertResultToTraditional}
-                        variant="secondary"
-                        className="flex-1"
-                        disabled={isConvertingTraditional}
-                      >
+                        {/* Action Buttons */}
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => {
+                              const text = activeTab === 'txt' ? result.txt || '' : result.srt || ''
+                              copyToClipboard(text)
+                            }}
+                            className="flex-1"
+                          >
+                            <Copy className="w-4 h-4 mr-2" />
+                            複製到剪貼板
+                          </Button>
+                          <Button
+                            onClick={convertResultToTraditional}
+                            variant="secondary"
+                            className="flex-1"
+                            disabled={isConvertingTraditional}
+                          >
                         {isConvertingTraditional ? (
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         ) : (
@@ -802,8 +835,11 @@ export default function AudioTranscriptionPage() {
                       
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span>語言: {task.language === "auto" ? "自動檢測" : task.language}</span>
+                          <span>語言: {task.language ? (task.language === "auto" ? "自動檢測" : task.language) : "未指定"}</span>
                           <span>進度: {task.progress}%</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>降噪: {task.denoise ? "已啟用" : "未啟用"}</span>
                         </div>
                         {task.status === "running" && (
                           <Progress value={task.progress} className="w-full" />
