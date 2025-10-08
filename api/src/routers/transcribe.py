@@ -9,6 +9,7 @@ import uuid
 import threading
 from threading import Semaphore
 import time
+from datetime import datetime, timezone
 from ..workers.transcribe_worker import transcribe_worker
 from ..utils.text_conversion import convert_to_traditional_chinese
 
@@ -87,7 +88,8 @@ class ConvertToTraditionalResponse(BaseModel):
 )
 async def start_transcribe_audio(
     file: UploadFile = File(...),
-    language: Optional[str] = Form(None)
+    language: Optional[str] = Form(None),
+    denoise: bool = Form(False)
 ):
     """启动转录任务，返回任务ID"""
     # 并发控制：若已达到上限则立即拒绝请求
@@ -104,6 +106,8 @@ async def start_transcribe_audio(
         logger.info("Language specified: %s", language)
     else:
         logger.info("No language specified, will auto-detect")
+    
+    logger.info("Noise reduction enabled: %s", denoise)
 
     # 暂存文件
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
@@ -123,7 +127,7 @@ async def start_transcribe_audio(
     # 创建并启动转录进程
     process = Process(
         target=transcribe_worker,
-        args=(temp_audio_path, language, result_queue, progress_dict, task_id)
+        args=(temp_audio_path, language, result_queue, progress_dict, task_id, denoise)
     )
     process.start()
     task.process = process
@@ -134,7 +138,10 @@ async def start_transcribe_audio(
         "filename": file.filename,
         "process": process,
         "result_queue": result_queue,
-        "progress_dict": progress_dict
+        "progress_dict": progress_dict,
+        "denoise": denoise,
+        "language": language or "auto",
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     # 在后台线程中监控进程
@@ -417,7 +424,10 @@ async def list_active_tasks():
         tasks.append({
             "task_id": task_id,
             "status": task.status,
-            "progress": active_tasks[task_id]["progress_dict"].get(task_id, 0),
-            "filename": task_info["filename"]
+            "progress": task_info["progress_dict"].get(task_id, 0),
+            "filename": task_info["filename"],
+            "denoise": task_info.get("denoise", False),
+            "language": task_info.get("language"),
+            "created_at": task_info.get("created_at")
         })
     return {"active_tasks": tasks} 

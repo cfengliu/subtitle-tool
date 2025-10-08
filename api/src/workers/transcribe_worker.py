@@ -1,9 +1,11 @@
 from multiprocessing import Queue
+import os
 import torch
 from faster_whisper import WhisperModel
 import logging
 
 from ..utils.text_conversion import convert_to_traditional_chinese
+from ..utils.audio_processing import denoise_audio
 
 # 设置日志配置
 logger = logging.getLogger(__name__)
@@ -280,8 +282,17 @@ class _ZhPunctuationRestorer:
             batch_out.append(out)
         return batch_out
 
-def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progress_dict: dict, task_id: str):
+def transcribe_worker(
+    audio_path: str,
+    language: str,
+    result_queue: Queue,
+    progress_dict: dict,
+    task_id: str,
+    apply_denoise: bool = False,
+):
     """在独立进程中执行转录的工作函数"""
+    denoise_temp_path = None
+
     try:
         # 在子进程中设置日志
         import logging
@@ -291,6 +302,24 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         # 记录 zhpr 状态
         worker_logger.info(f"Worker {task_id} started - zhpr available: {_ZHPR_AVAILABLE}")
         
+        processed_audio_path = audio_path
+
+        if apply_denoise:
+            try:
+                current_progress = progress_dict.get(task_id, 0)
+            except Exception:
+                current_progress = 0
+
+            progress_dict[task_id] = max(current_progress, 5)
+            success, denoised_path, message = denoise_audio(audio_path)
+            if success and denoised_path:
+                processed_audio_path = denoised_path
+                denoise_temp_path = denoised_path
+                worker_logger.info(f"Noise reduction applied for task {task_id}: {message}")
+                progress_dict[task_id] = max(progress_dict.get(task_id, 0), 10)
+            else:
+                worker_logger.warning(f"Noise reduction requested but failed for task {task_id}: {message}")
+
         # 在子进程中重新初始化模型
         device = "cuda" if torch.cuda.is_available() else "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
@@ -304,10 +333,10 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         }
         
         if language:
-            segments, info = worker_model.transcribe(audio_path, language=language, **transcribe_options)
+            segments, info = worker_model.transcribe(processed_audio_path, language=language, **transcribe_options)
             detected_language = language
         else:
-            segments, info = worker_model.transcribe(audio_path, **transcribe_options)
+            segments, info = worker_model.transcribe(processed_audio_path, **transcribe_options)
             detected_language = info.language
         
         # 生成 SRT 格式
@@ -409,7 +438,8 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
             "srt": srt_output, 
             "txt": txt_output,
             "detected_language": detected_language,
-            "status": "completed"
+            "status": "completed",
+            "noise_reduction_applied": apply_denoise and denoise_temp_path is not None
         }
         result_queue.put(result)
         
@@ -417,3 +447,9 @@ def transcribe_worker(audio_path: str, language: str, result_queue: Queue, progr
         logger.error("Error during transcription: %s", e)
         error_result = {"error": "Transcription failed.", "status": "error"}
         result_queue.put(error_result) 
+    finally:
+        if denoise_temp_path and os.path.exists(denoise_temp_path):
+            try:
+                os.remove(denoise_temp_path)
+            except OSError:
+                logger.warning(f"Failed to clean up denoised file: {denoise_temp_path}")
